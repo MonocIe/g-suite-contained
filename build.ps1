@@ -5,12 +5,19 @@ $srcFile  = Join-Path $projRoot "src\GSuiteContainer.cs"
 $outDll   = Join-Path $projRoot "GSuiteContainer.dll"
 $outExe   = Join-Path $projRoot "GSuiteContainer.exe"
 $rtConfig = Join-Path $projRoot "GSuiteContainer.runtimeconfig.json"
+$icoFile  = Join-Path $projRoot "assets\app-icon.ico"
+
+# Stop running instance if open
+Stop-Process -Name "GSuiteContainer" -Force -ErrorAction SilentlyContinue
 
 # 1. Copy WebView2 Runtime Interop Libraries (1.0.2903.40, < 900 KB total) if not already present
 $wvSource = "C:\Program Files\WindowsApps\SVGDesignSolutions.AppsLauncherSearchEmailVideoDoc_1.4.1.0_x64__fj0jsbcsefh74\GAppLauncher"
 if (Test-Path $wvSource) {
     foreach ($f in @("Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.Wpf.dll", "WebView2Loader.dll")) {
-        Copy-Item (Join-Path $wvSource $f) (Join-Path $projRoot $f) -Force
+        $targetPath = Join-Path $projRoot $f
+        if (-not (Test-Path $targetPath)) {
+            Copy-Item (Join-Path $wvSource $f) $targetPath -Force
+        }
     }
 }
 
@@ -37,6 +44,7 @@ $refNames = @(
     "$netCoreDir\System.Threading.dll",
     "$netCoreDir\System.Threading.Tasks.dll",
     "$netCoreDir\Microsoft.Win32.Primitives.dll",
+    "$netCoreDir\Microsoft.Win32.Registry.dll",
     "$netCoreDir\System.Drawing.Primitives.dll",
     "$netCoreDir\netstandard.dll",
     "$netCoreDir\mscorlib.dll",
@@ -71,11 +79,19 @@ $comp = [Microsoft.CodeAnalysis.CSharp.CSharpCompilation]::Create(
     $opts
 )
 
+$win32ResStream = $null
+$icoStream = $null
 $fs = [System.IO.File]::Create($outDll)
 try {
-    $emitResult = $comp.Emit($fs)
+    if (Test-Path $icoFile) {
+        $icoStream = [System.IO.File]::OpenRead($icoFile)
+        $win32ResStream = $comp.CreateDefaultWin32Resources($true, $false, $null, $icoStream)
+    }
+    $emitResult = $comp.Emit($fs, $null, $null, $win32ResStream, $null, $null)
 } finally {
     $fs.Close()
+    if ($win32ResStream) { $win32ResStream.Dispose() }
+    if ($icoStream) { $icoStream.Dispose() }
 }
 if (-not $emitResult.Success) {
     foreach ($diag in $emitResult.Diagnostics) {

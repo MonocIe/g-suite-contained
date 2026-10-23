@@ -7,19 +7,18 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
-using System.Windows.Shapes;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
@@ -38,10 +37,10 @@ namespace GSuiteContainer
     {
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
-        public string Category { get; set; } = "Core Productivity";
+        public string Category { get; set; } = "Workspace";
         public string Url { get; set; } = "";
-        public string Badge { get; set; } = "G";
-        public string AccentHex { get; set; } = "#8AB4F8";
+        public string IconFile { get; set; } = "google-apps-for-work.png";
+        public string AccentHex { get; set; } = "#0B57D0";
         public bool IsFavorite { get; set; }
         public bool IsCustom { get; set; }
         public List<SubItemDef> SubItems { get; set; } = new List<SubItemDef>();
@@ -53,24 +52,22 @@ namespace GSuiteContainer
         public string Name { get; set; } = "";
         public string Prefix { get; set; } = "";
         public string UrlTemplate { get; set; } = "";
-        public string AccentHex { get; set; } = "#8AB4F8";
+        public string IconFile { get; set; } = "google-apps-for-work.png";
     }
 
     public class WorkspaceProfile
     {
         public string Id { get; set; } = "personal";
         public string Name { get; set; } = "Personal";
-        public string AccentHex { get; set; } = "#8AB4F8";
         public string PinSha256 { get; set; } = "";
-        public string DetectedAccount { get; set; } = "";
+        public string DetectedAccount { get; set; } = "george.christosp@gmail.com";
         public List<string> OpenTabUrls { get; set; } = new List<string>();
     }
 
     public class AppConfig
     {
         public string ActiveWorkspaceId { get; set; } = "personal";
-        public bool AdBlockEnabled { get; set; } = true;
-        public bool AutoHideSidebar { get; set; } = false;
+        public bool SidebarCollapsed { get; set; } = false;
         public bool AiDrawerOpen { get; set; } = false;
         public string ActiveAiProviderUrl { get; set; } = "https://gemini.google.com/app";
         public string DefaultSearchEngineId { get; set; } = "google";
@@ -81,9 +78,9 @@ namespace GSuiteContainer
         public List<GoogleAppDef> CustomApps { get; set; } = new List<GoogleAppDef>();
         public List<WorkspaceProfile> Workspaces { get; set; } = new List<WorkspaceProfile>
         {
-            new WorkspaceProfile { Id = "personal", Name = "Personal", AccentHex = "#8AB4F8" },
-            new WorkspaceProfile { Id = "work", Name = "Work / Corp", AccentHex = "#81C995" },
-            new WorkspaceProfile { Id = "executive", Name = "Executive Vault", AccentHex = "#FDD663" }
+            new WorkspaceProfile { Id = "personal", Name = "Personal", DetectedAccount = "george.christosp@gmail.com" },
+            new WorkspaceProfile { Id = "work", Name = "Work / Corp", DetectedAccount = "george@panag.io" },
+            new WorkspaceProfile { Id = "executive", Name = "Executive Vault", DetectedAccount = "george.christosp@gmail.com" }
         };
     }
 
@@ -92,10 +89,8 @@ namespace GSuiteContainer
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
         public string Title { get; set; } = "New Tab";
         public string Url { get; set; } = "about:blank";
-        public string Badge { get; set; } = "G";
-        public string AccentHex { get; set; } = "#8AB4F8";
+        public string IconFile { get; set; } = "google-apps-for-work.png";
         public bool IsHibernated { get; set; }
-        public bool IsHomeTab { get; set; }
         public WebView2? WebView { get; set; }
         public Border? TabChipBorder { get; set; }
         public TextBlock? TabTitleText { get; set; }
@@ -103,52 +98,211 @@ namespace GSuiteContainer
     }
 
     // =========================================================================
-    // CATALOG & ENGINE REGISTRY (CONSOLIDATED FROM ALL 6 APPS)
+    // CUSTOM FLEX TAB PANEL (REQ-03: CSS FLEX-LIKE TAB SHRINKING, ZERO SCROLLBAR)
+    // =========================================================================
+    public class FlexTabPanel : Panel
+    {
+        public double MinTabWidth { get; set; } = 44.0;
+        public double MaxTabWidth { get; set; } = 190.0;
+
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            int count = InternalChildren.Count;
+            if (count == 0) return new Size(0, 0);
+
+            double availW = double.IsInfinity(availableSize.Width) ? 1200.0 : availableSize.Width;
+            double fixedWidth = 0;
+            int flexCount = 0;
+            double maxHeight = 34.0;
+
+            for (int i = 0; i < count; i++)
+            {
+                var child = InternalChildren[i];
+                bool isFixed = (i == 0 || i == count - 1);
+                if (isFixed)
+                {
+                    child.Measure(new Size(double.PositiveInfinity, availableSize.Height));
+                    fixedWidth += child.DesiredSize.Width;
+                    if (child.DesiredSize.Height > maxHeight) maxHeight = child.DesiredSize.Height;
+                }
+                else
+                {
+                    flexCount++;
+                }
+            }
+
+            if (flexCount > 0)
+            {
+                double remaining = Math.Max(0, availW - fixedWidth);
+                double eachW = Math.Clamp(remaining / flexCount, MinTabWidth, MaxTabWidth);
+                for (int i = 1; i < count - 1; i++)
+                {
+                    var child = InternalChildren[i];
+                    child.Measure(new Size(eachW, availableSize.Height));
+                    if (child.DesiredSize.Height > maxHeight) maxHeight = child.DesiredSize.Height;
+                }
+            }
+
+            return new Size(Math.Min(availW, fixedWidth + flexCount * MaxTabWidth), maxHeight);
+        }
+
+        protected override Size ArrangeOverride(Size finalSize)
+        {
+            int count = InternalChildren.Count;
+            if (count == 0) return finalSize;
+
+            double fixedWidth = 0;
+            int flexCount = 0;
+
+            for (int i = 0; i < count; i++)
+            {
+                bool isFixed = (i == 0 || i == count - 1);
+                if (isFixed)
+                    fixedWidth += InternalChildren[i].DesiredSize.Width;
+                else
+                    flexCount++;
+            }
+
+            double remaining = Math.Max(0, finalSize.Width - fixedWidth);
+            double eachW = flexCount > 0 ? Math.Clamp(remaining / flexCount, MinTabWidth, MaxTabWidth) : 0;
+
+            double x = 0;
+            for (int i = 0; i < count; i++)
+            {
+                var child = InternalChildren[i];
+                bool isFixed = (i == 0 || i == count - 1);
+                double w = isFixed ? child.DesiredSize.Width : eachW;
+                double h = child.DesiredSize.Height > 0 ? child.DesiredSize.Height : finalSize.Height;
+                double y = Math.Max(0, (finalSize.Height - h) / 2.0);
+                child.Arrange(new Rect(x, y, w, h));
+                x += w;
+            }
+
+            return finalSize;
+        }
+    }
+
+    // =========================================================================
+    // STITCH MATERIAL DESIGN 3 DYNAMIC OS THEME TOKENS
+    // =========================================================================
+    public static class Md3Theme
+    {
+        public static bool IsDark { get; private set; } = DetectWindowsDarkMode();
+
+        // Surface & Primary Tokens synced to OS default
+        public static SolidColorBrush Surface { get; private set; } = null!;
+        public static SolidColorBrush SurfaceContainer { get; private set; } = null!;
+        public static SolidColorBrush SurfaceVariant { get; private set; } = null!;
+        public static SolidColorBrush Primary { get; private set; } = null!;
+        public static SolidColorBrush PrimaryContainer { get; private set; } = null!;
+        public static SolidColorBrush OnPrimaryContainer { get; private set; } = null!;
+        public static SolidColorBrush TextPrimary { get; private set; } = null!;
+        public static SolidColorBrush TextSecondary { get; private set; } = null!;
+        public static SolidColorBrush Outline { get; private set; } = null!;
+
+        static Md3Theme()
+        {
+            RefreshPalette();
+        }
+
+        public static bool DetectWindowsDarkMode()
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+                if (key != null)
+                {
+                    object? val = key.GetValue("AppsUseLightTheme");
+                    if (val is int i) return i == 0;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        public static bool SyncWithOsTheme()
+        {
+            bool nowDark = DetectWindowsDarkMode();
+            if (nowDark != IsDark || Surface == null)
+            {
+                IsDark = nowDark;
+                RefreshPalette();
+                return true;
+            }
+            return false;
+        }
+
+        public static void RefreshPalette()
+        {
+            if (IsDark)
+            {
+                // Official Google Workspace Material Design 3 Dark Tokens
+                Surface            = BrushFromHex("#131314");
+                SurfaceContainer   = BrushFromHex("#1E1F20");
+                SurfaceVariant     = BrushFromHex("#282A2C");
+                Primary            = BrushFromHex("#A8C7FA");
+                PrimaryContainer   = BrushFromHex("#0842A0");
+                OnPrimaryContainer = BrushFromHex("#D3E3FD");
+                TextPrimary        = BrushFromHex("#E3E3E3");
+                TextSecondary      = BrushFromHex("#C4C7C5");
+                Outline            = BrushFromHex("#333537");
+            }
+            else
+            {
+                // Official Google Workspace Material Design 3 Light Tokens
+                Surface            = BrushFromHex("#F8FAFD");
+                SurfaceContainer   = BrushFromHex("#FFFFFF");
+                SurfaceVariant     = BrushFromHex("#EFF3F8");
+                Primary            = BrushFromHex("#0B57D0");
+                PrimaryContainer   = BrushFromHex("#D3E3FD");
+                OnPrimaryContainer = BrushFromHex("#041E49");
+                TextPrimary        = BrushFromHex("#1F1F1F");
+                TextSecondary      = BrushFromHex("#444746");
+                Outline            = BrushFromHex("#E0E2E0");
+            }
+        }
+
+        public static SolidColorBrush BrushFromHex(string hex)
+        {
+            var c = (Color)ColorConverter.ConvertFromString(hex);
+            var b = new SolidColorBrush(c);
+            b.Freeze();
+            return b;
+        }
+    }
+
+    // =========================================================================
+    // CATALOG & ENGINE REGISTRY (REQ-01 & REQ-10: OFFICIAL DRIVE ICONOGRAPHY)
     // =========================================================================
     public static class CatalogRegistry
     {
         public static List<SearchEngineDef> GetSearchEngines() => new List<SearchEngineDef>
         {
-            new SearchEngineDef { Id = "google", Name = "Google Web", Prefix = "g", UrlTemplate = "https://www.google.com/search?q={0}", AccentHex = "#8AB4F8" },
-            new SearchEngineDef { Id = "youtube", Name = "YouTube", Prefix = "yt", UrlTemplate = "https://www.youtube.com/results?search_query={0}", AccentHex = "#F28B82" },
-            new SearchEngineDef { Id = "gmail", Name = "Gmail Mail", Prefix = "m", UrlTemplate = "https://mail.google.com/mail/u/0/#search/{0}", AccentHex = "#F28B82" },
-            new SearchEngineDef { Id = "drive", Name = "Google Drive", Prefix = "d", UrlTemplate = "https://drive.google.com/drive/search?q={0}", AccentHex = "#FDD663" },
-            new SearchEngineDef { Id = "docs", Name = "Google Docs", Prefix = "doc", UrlTemplate = "https://docs.google.com/document/u/0/?q={0}", AccentHex = "#8AB4F8" },
-            new SearchEngineDef { Id = "calendar", Name = "Calendar", Prefix = "cal", UrlTemplate = "https://calendar.google.com/calendar/u/0/r/search?q={0}", AccentHex = "#8AB4F8" },
-            new SearchEngineDef { Id = "maps", Name = "Google Maps", Prefix = "map", UrlTemplate = "https://www.google.com/maps/search/{0}", AccentHex = "#81C995" },
-            new SearchEngineDef { Id = "scholar", Name = "Scholar", Prefix = "sch", UrlTemplate = "https://scholar.google.com/scholar?q={0}", AccentHex = "#8AB4F8" },
-            new SearchEngineDef { Id = "gemini", Name = "Gemini AI", Prefix = "ai", UrlTemplate = "https://gemini.google.com/app?q={0}", AccentHex = "#C58AF9" },
-            new SearchEngineDef { Id = "perplexity", Name = "Perplexity", Prefix = "px", UrlTemplate = "https://www.perplexity.ai/search?q={0}", AccentHex = "#78D9EC" },
-            new SearchEngineDef { Id = "duckduckgo", Name = "DuckDuckGo", Prefix = "ddg", UrlTemplate = "https://duckduckgo.com/?q={0}", AccentHex = "#F6AEA9" },
-            new SearchEngineDef { Id = "github", Name = "GitHub", Prefix = "gh", UrlTemplate = "https://github.com/search?q={0}", AccentHex = "#E8EAED" }
+            new SearchEngineDef { Id = "google", Name = "Google Web", Prefix = "g", UrlTemplate = "https://www.google.com/search?q={0}", IconFile = "google-apps-for-work.png" },
+            new SearchEngineDef { Id = "youtube", Name = "YouTube", Prefix = "yt", UrlTemplate = "https://www.youtube.com/results?search_query={0}", IconFile = "youtube.png" },
+            new SearchEngineDef { Id = "gmail", Name = "Gmail", Prefix = "m", UrlTemplate = "https://mail.google.com/mail/u/0/#search/{0}", IconFile = "gmail.png" },
+            new SearchEngineDef { Id = "drive", Name = "Drive", Prefix = "d", UrlTemplate = "https://drive.google.com/drive/search?q={0}", IconFile = "google-drive.png" },
+            new SearchEngineDef { Id = "docs", Name = "Docs", Prefix = "doc", UrlTemplate = "https://docs.google.com/document/u/0/?q={0}", IconFile = "google-docs.png" },
+            new SearchEngineDef { Id = "calendar", Name = "Calendar", Prefix = "cal", UrlTemplate = "https://calendar.google.com/calendar/u/0/r/search?q={0}", IconFile = "google-calendar.png" },
+            new SearchEngineDef { Id = "maps", Name = "Maps", Prefix = "map", UrlTemplate = "https://www.google.com/maps/search/{0}", IconFile = "google-maps.png" },
+            new SearchEngineDef { Id = "scholar", Name = "Scholar", Prefix = "sch", UrlTemplate = "https://scholar.google.com/scholar?q={0}", IconFile = "google-scholar.png" },
+            new SearchEngineDef { Id = "gemini", Name = "Gemini", Prefix = "ai", UrlTemplate = "https://gemini.google.com/app?q={0}", IconFile = "google-gemini.png" }
         };
 
-        public static List<(string Label, string Badge, string Url, string Hex)> GetQuickCreateActions() => new List<(string, string, string, string)>
+        public static List<(string Name, string Url, string IconFile)> GetAiProviders() => new List<(string, string, string)>
         {
-            ("+ New Doc", "Doc", "https://docs.google.com/document/create", "#8AB4F8"),
-            ("+ New Sheet", "Xls", "https://docs.google.com/spreadsheets/create", "#81C995"),
-            ("+ New Slide", "Ppt", "https://docs.google.com/presentation/create", "#FDD663"),
-            ("+ New Form", "Frm", "https://docs.google.com/forms/create", "#C58AF9"),
-            ("+ New Event", "Cal", "https://calendar.google.com/calendar/u/0/r/eventedit", "#8AB4F8"),
-            ("+ New Meet", "Vid", "https://meet.google.com/new", "#81C995"),
-            ("+ New Note", "Kep", "https://keep.google.com/#NOTE", "#FDD663")
-        };
-
-        public static List<(string Name, string Badge, string Url, string Hex)> GetAiProviders() => new List<(string, string, string, string)>
-        {
-            ("Gemini", "Gem", "https://gemini.google.com/app", "#C58AF9"),
-            ("NotebookLM", "NLM", "https://notebooklm.google.com/", "#81C995"),
-            ("AI Studio", "AIS", "https://aistudio.google.com/", "#8AB4F8"),
-            ("ChatGPT", "GPT", "https://chatgpt.com/", "#78D9EC"),
-            ("Claude", "Cld", "https://claude.ai/", "#F6AEA9"),
-            ("Perplexity", "Ppx", "https://www.perplexity.ai/", "#8AB4F8")
+            ("Gemini", "https://gemini.google.com/app", "google-gemini.png"),
+            ("NotebookLM", "https://notebooklm.google.com/", "gemini-notebook.png"),
+            ("AI Studio", "https://aistudio.google.com/", "google-ai-studio.png"),
+            ("ChatGPT", "https://chatgpt.com/", "google-apps-for-work.png"),
+            ("Claude", "https://claude.ai/", "google-apps-for-work.png"),
+            ("Perplexity", "https://www.perplexity.ai/", "google-apps-for-work.png")
         };
 
         public static List<GoogleAppDef> GetBuiltInCatalog() => new List<GoogleAppDef>
         {
-            // 1. Core Productivity
             new GoogleAppDef {
-                Id = "gmail", Name = "Gmail", Category = "Core Productivity", Badge = "M", AccentHex = "#F28B82",
+                Id = "gmail", Name = "Gmail", IconFile = "gmail.png",
                 Url = "https://mail.google.com/mail/u/0/#inbox",
                 SubItems = new List<SubItemDef> {
                     new SubItemDef { Name = "Compose Email", Url = "https://mail.google.com/mail/u/0/#inbox?compose=new" },
@@ -156,98 +310,100 @@ namespace GSuiteContainer
                     new SubItemDef { Name = "Starred", Url = "https://mail.google.com/mail/u/0/#starred" },
                     new SubItemDef { Name = "Sent Mail", Url = "https://mail.google.com/mail/u/0/#sent" },
                     new SubItemDef { Name = "Drafts", Url = "https://mail.google.com/mail/u/0/#drafts" },
-                    new SubItemDef { Name = "All Mail", Url = "https://mail.google.com/mail/u/0/#all" },
-                    new SubItemDef { Name = "Spam", Url = "https://mail.google.com/mail/u/0/#spam" },
-                    new SubItemDef { Name = "Trash", Url = "https://mail.google.com/mail/u/0/#trash" }
+                    new SubItemDef { Name = "All Mail", Url = "https://mail.google.com/mail/u/0/#all" }
                 }
             },
             new GoogleAppDef {
-                Id = "calendar", Name = "Google Calendar", Category = "Core Productivity", Badge = "31", AccentHex = "#8AB4F8",
+                Id = "calendar", Name = "Calendar", IconFile = "google-calendar.png",
                 Url = "https://calendar.google.com/calendar/u/0/r",
                 SubItems = new List<SubItemDef> {
                     new SubItemDef { Name = "+ New Event", Url = "https://calendar.google.com/calendar/u/0/r/eventedit" },
                     new SubItemDef { Name = "Day View", Url = "https://calendar.google.com/calendar/u/0/r/day" },
                     new SubItemDef { Name = "Week View", Url = "https://calendar.google.com/calendar/u/0/r/week" },
-                    new SubItemDef { Name = "Month View", Url = "https://calendar.google.com/calendar/u/0/r/month" },
-                    new SubItemDef { Name = "Schedule / Agenda", Url = "https://calendar.google.com/calendar/u/0/r/agenda" }
+                    new SubItemDef { Name = "Month View", Url = "https://calendar.google.com/calendar/u/0/r/month" }
                 }
             },
             new GoogleAppDef {
-                Id = "drive", Name = "Google Drive", Category = "Core Productivity", Badge = "Drv", AccentHex = "#FDD663",
+                Id = "drive", Name = "Drive", IconFile = "google-drive.png",
                 Url = "https://drive.google.com/drive/my-drive",
                 SubItems = new List<SubItemDef> {
                     new SubItemDef { Name = "My Drive", Url = "https://drive.google.com/drive/my-drive" },
                     new SubItemDef { Name = "Shared with me", Url = "https://drive.google.com/drive/shared-with-me" },
                     new SubItemDef { Name = "Recent Files", Url = "https://drive.google.com/drive/recent" },
-                    new SubItemDef { Name = "Starred", Url = "https://drive.google.com/drive/starred" },
-                    new SubItemDef { Name = "Storage Quota", Url = "https://drive.google.com/drive/quota" },
-                    new SubItemDef { Name = "Trash", Url = "https://drive.google.com/drive/trash" }
+                    new SubItemDef { Name = "Starred", Url = "https://drive.google.com/drive/starred" }
                 }
             },
             new GoogleAppDef {
-                Id = "keep", Name = "Google Keep", Category = "Core Productivity", Badge = "Kep", AccentHex = "#FDD663",
+                Id = "docs", Name = "Docs", IconFile = "google-docs.png",
+                Url = "https://docs.google.com/document/u/0/",
+                SubItems = new List<SubItemDef> {
+                    new SubItemDef { Name = "+ Create Blank Doc", Url = "https://docs.google.com/document/create" },
+                    new SubItemDef { Name = "All Documents", Url = "https://docs.google.com/document/u/0/" }
+                }
+            },
+            new GoogleAppDef {
+                Id = "sheets", Name = "Sheets", IconFile = "google-sheets.png",
+                Url = "https://docs.google.com/spreadsheets/u/0/",
+                SubItems = new List<SubItemDef> {
+                    new SubItemDef { Name = "+ Create Blank Sheet", Url = "https://docs.google.com/spreadsheets/create" },
+                    new SubItemDef { Name = "All Spreadsheets", Url = "https://docs.google.com/spreadsheets/u/0/" }
+                }
+            },
+            new GoogleAppDef {
+                Id = "slides", Name = "Slides", IconFile = "google-slides.png",
+                Url = "https://docs.google.com/presentation/u/0/",
+                SubItems = new List<SubItemDef> {
+                    new SubItemDef { Name = "+ Create Blank Presentation", Url = "https://docs.google.com/presentation/create" },
+                    new SubItemDef { Name = "All Presentations", Url = "https://docs.google.com/presentation/u/0/" }
+                }
+            },
+            new GoogleAppDef {
+                Id = "keep", Name = "Keep", IconFile = "google-keep.png",
                 Url = "https://keep.google.com/",
                 SubItems = new List<SubItemDef> {
                     new SubItemDef { Name = "Notes", Url = "https://keep.google.com/#home" },
                     new SubItemDef { Name = "Reminders", Url = "https://keep.google.com/#reminders" },
-                    new SubItemDef { Name = "Archive", Url = "https://keep.google.com/#archive" },
-                    new SubItemDef { Name = "Trash", Url = "https://keep.google.com/#trash" }
+                    new SubItemDef { Name = "Archive", Url = "https://keep.google.com/#archive" }
                 }
             },
             new GoogleAppDef {
-                Id = "tasks", Name = "Google Tasks", Category = "Core Productivity", Badge = "Tsk", AccentHex = "#8AB4F8",
+                Id = "tasks", Name = "Tasks", IconFile = "google-tasks.png",
                 Url = "https://tasks.google.com/embed/?origin=https://calendar.google.com&fullWidth=1"
             },
             new GoogleAppDef {
-                Id = "contacts", Name = "Google Contacts", Category = "Core Productivity", Badge = "Cnt", AccentHex = "#8AB4F8",
-                Url = "https://contacts.google.com/",
+                Id = "meet", Name = "Meet", IconFile = "google-meet.png",
+                Url = "https://meet.google.com/",
                 SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "All Contacts", Url = "https://contacts.google.com/" },
-                    new SubItemDef { Name = "Frequently Contacted", Url = "https://contacts.google.com/frequent" },
-                    new SubItemDef { Name = "Merge & Fix", Url = "https://contacts.google.com/suggestions" }
+                    new SubItemDef { Name = "+ Start Instant Meeting", Url = "https://meet.google.com/new" },
+                    new SubItemDef { Name = "Meet Home", Url = "https://meet.google.com/" }
                 }
             },
             new GoogleAppDef {
-                Id = "account", Name = "Google Account", Category = "Core Productivity", Badge = "Acc", AccentHex = "#8AB4F8",
-                Url = "https://myaccount.google.com/",
-                SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "Security & Sign-in", Url = "https://myaccount.google.com/security" },
-                    new SubItemDef { Name = "Data & Privacy", Url = "https://myaccount.google.com/data-and-privacy" },
-                    new SubItemDef { Name = "Payments & Subscriptions", Url = "https://myaccount.google.com/payments-and-subscriptions" },
-                    new SubItemDef { Name = "Password Manager", Url = "https://passwords.google.com/" }
-                }
+                Id = "chat", Name = "Chat", IconFile = "google-chat.png",
+                Url = "https://mail.google.com/chat/u/0/#chat/home"
             },
-
-            // 2. Docs & Creation
             new GoogleAppDef {
-                Id = "docs", Name = "Google Docs", Category = "Docs & Creation", Badge = "Doc", AccentHex = "#8AB4F8",
-                Url = "https://docs.google.com/document/u/0/",
+                Id = "gemini", Name = "Gemini", IconFile = "google-gemini.png",
+                Url = "https://gemini.google.com/app",
                 SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "+ Create Blank Doc", Url = "https://docs.google.com/document/create" },
-                    new SubItemDef { Name = "All Documents", Url = "https://docs.google.com/document/u/0/" },
-                    new SubItemDef { Name = "Template Gallery", Url = "https://docs.google.com/document/u/0/?ftv=1" }
+                    new SubItemDef { Name = "Gemini Chat", Url = "https://gemini.google.com/app" },
+                    new SubItemDef { Name = "Gems Manager", Url = "https://gemini.google.com/gems/view" }
                 }
             },
             new GoogleAppDef {
-                Id = "sheets", Name = "Google Sheets", Category = "Docs & Creation", Badge = "Xls", AccentHex = "#81C995",
-                Url = "https://docs.google.com/spreadsheets/u/0/",
+                Id = "notebooklm", Name = "NotebookLM", IconFile = "gemini-notebook.png",
+                Url = "https://notebooklm.google.com/"
+            },
+            new GoogleAppDef {
+                Id = "aistudio", Name = "AI Studio", IconFile = "google-ai-studio.png",
+                Url = "https://aistudio.google.com/prompts/new_chat",
                 SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "+ Create Blank Sheet", Url = "https://docs.google.com/spreadsheets/create" },
-                    new SubItemDef { Name = "All Spreadsheets", Url = "https://docs.google.com/spreadsheets/u/0/" },
-                    new SubItemDef { Name = "Template Gallery", Url = "https://docs.google.com/spreadsheets/u/0/?ftv=1" }
+                    new SubItemDef { Name = "Prompt Playground", Url = "https://aistudio.google.com/prompts/new_chat" },
+                    new SubItemDef { Name = "API Keys", Url = "https://aistudio.google.com/app/apikey" }
                 }
             },
             new GoogleAppDef {
-                Id = "slides", Name = "Google Slides", Category = "Docs & Creation", Badge = "Ppt", AccentHex = "#FDD663",
-                Url = "https://docs.google.com/presentation/u/0/",
-                SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "+ Create Blank Presentation", Url = "https://docs.google.com/presentation/create" },
-                    new SubItemDef { Name = "All Presentations", Url = "https://docs.google.com/presentation/u/0/" },
-                    new SubItemDef { Name = "Template Gallery", Url = "https://docs.google.com/presentation/u/0/?ftv=1" }
-                }
-            },
-            new GoogleAppDef {
-                Id = "forms", Name = "Google Forms", Category = "Docs & Creation", Badge = "Frm", AccentHex = "#C58AF9",
+                Id = "forms", Name = "Forms", IconFile = "google-forms.png",
                 Url = "https://docs.google.com/forms/u/0/",
                 SubItems = new List<SubItemDef> {
                     new SubItemDef { Name = "+ Create Blank Form", Url = "https://docs.google.com/forms/create" },
@@ -255,37 +411,28 @@ namespace GSuiteContainer
                 }
             },
             new GoogleAppDef {
-                Id = "sites", Name = "Google Sites", Category = "Docs & Creation", Badge = "Sit", AccentHex = "#8AB4F8",
+                Id = "sites", Name = "Sites", IconFile = "google-sites.png",
                 Url = "https://sites.google.com/new"
             },
             new GoogleAppDef {
-                Id = "drawings", Name = "Google Drawings", Category = "Docs & Creation", Badge = "Drw", AccentHex = "#F28B82",
+                Id = "drawings", Name = "Drawings", IconFile = "google-drawings.png",
                 Url = "https://docs.google.com/drawings/create"
             },
             new GoogleAppDef {
-                Id = "fonts", Name = "Google Fonts", Category = "Docs & Creation", Badge = "Aa", AccentHex = "#E8EAED",
-                Url = "https://fonts.google.com/",
-                SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "Font Catalog", Url = "https://fonts.google.com/" },
-                    new SubItemDef { Name = "Material Symbols & Icons", Url = "https://fonts.google.com/icons" }
-                }
+                Id = "contacts", Name = "Contacts", IconFile = "google-contacts.png",
+                Url = "https://contacts.google.com/"
             },
-
-            // 3. Communication
             new GoogleAppDef {
-                Id = "meet", Name = "Google Meet", Category = "Communication", Badge = "Met", AccentHex = "#81C995",
-                Url = "https://meet.google.com/",
+                Id = "account", Name = "Account", IconFile = "google-account.png",
+                Url = "https://myaccount.google.com/",
                 SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "+ Start Instant Meeting", Url = "https://meet.google.com/new" },
-                    new SubItemDef { Name = "Meet Home / Schedule", Url = "https://meet.google.com/" }
+                    new SubItemDef { Name = "Security & Sign-in", Url = "https://myaccount.google.com/security" },
+                    new SubItemDef { Name = "Data & Privacy", Url = "https://myaccount.google.com/data-and-privacy" },
+                    new SubItemDef { Name = "Password Manager", Url = "https://passwords.google.com/" }
                 }
             },
             new GoogleAppDef {
-                Id = "chat", Name = "Google Chat", Category = "Communication", Badge = "Cht", AccentHex = "#81C995",
-                Url = "https://mail.google.com/chat/u/0/#chat/home"
-            },
-            new GoogleAppDef {
-                Id = "voice", Name = "Google Voice", Category = "Communication", Badge = "Vox", AccentHex = "#81C995",
+                Id = "voice", Name = "Voice", IconFile = "google-voice.png",
                 Url = "https://voice.google.com/u/0/calls",
                 SubItems = new List<SubItemDef> {
                     new SubItemDef { Name = "Calls", Url = "https://voice.google.com/u/0/calls" },
@@ -294,186 +441,140 @@ namespace GSuiteContainer
                 }
             },
             new GoogleAppDef {
-                Id = "messages", Name = "Google Messages", Category = "Communication", Badge = "SMS", AccentHex = "#8AB4F8",
+                Id = "messages", Name = "Messages", IconFile = "google-messages.png",
                 Url = "https://messages.google.com/web/conversations"
             },
             new GoogleAppDef {
-                Id = "groups", Name = "Google Groups", Category = "Communication", Badge = "Grp", AccentHex = "#8AB4F8",
+                Id = "groups", Name = "Groups", IconFile = "google-groups.png",
                 Url = "https://groups.google.com/my-groups"
             },
-
-            // 4. Cloud, AI & Dev
             new GoogleAppDef {
-                Id = "gemini", Name = "Google Gemini", Category = "Cloud, AI & Dev", Badge = "Gem", AccentHex = "#C58AF9",
-                Url = "https://gemini.google.com/app",
-                SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "Gemini Chat", Url = "https://gemini.google.com/app" },
-                    new SubItemDef { Name = "Gems Manager", Url = "https://gemini.google.com/gems/view" }
-                }
-            },
-            new GoogleAppDef {
-                Id = "notebooklm", Name = "NotebookLM", Category = "Cloud, AI & Dev", Badge = "NLM", AccentHex = "#81C995",
-                Url = "https://notebooklm.google.com/"
-            },
-            new GoogleAppDef {
-                Id = "aistudio", Name = "Google AI Studio", Category = "Cloud, AI & Dev", Badge = "AIS", AccentHex = "#8AB4F8",
-                Url = "https://aistudio.google.com/prompts/new_chat",
-                SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "Prompt Playground", Url = "https://aistudio.google.com/prompts/new_chat" },
-                    new SubItemDef { Name = "API Keys", Url = "https://aistudio.google.com/app/apikey" }
-                }
-            },
-            new GoogleAppDef {
-                Id = "cloud", Name = "Google Cloud Console", Category = "Cloud, AI & Dev", Badge = "GCP", AccentHex = "#8AB4F8",
+                Id = "cloud", Name = "Cloud Console", IconFile = "google-cloud-console.png",
                 Url = "https://console.cloud.google.com/",
                 SubItems = new List<SubItemDef> {
                     new SubItemDef { Name = "Dashboard", Url = "https://console.cloud.google.com/home/dashboard" },
                     new SubItemDef { Name = "IAM & Admin", Url = "https://console.cloud.google.com/iam-admin" },
                     new SubItemDef { Name = "APIs & Services", Url = "https://console.cloud.google.com/apis/dashboard" },
                     new SubItemDef { Name = "Cloud Run", Url = "https://console.cloud.google.com/run" },
-                    new SubItemDef { Name = "BigQuery", Url = "https://console.cloud.google.com/bigquery" },
-                    new SubItemDef { Name = "Billing", Url = "https://console.cloud.google.com/billing" }
+                    new SubItemDef { Name = "BigQuery", Url = "https://console.cloud.google.com/bigquery" }
                 }
             },
             new GoogleAppDef {
-                Id = "colab", Name = "Google Colab", Category = "Cloud, AI & Dev", Badge = "Clb", AccentHex = "#FDD663",
+                Id = "colab", Name = "Colab", IconFile = "google-colab.png",
                 Url = "https://colab.research.google.com/"
             },
             new GoogleAppDef {
-                Id = "firebase", Name = "Firebase Console", Category = "Cloud, AI & Dev", Badge = "Fbs", AccentHex = "#FDD663",
+                Id = "firebase", Name = "Firebase", IconFile = "firebase-console.png",
                 Url = "https://console.firebase.google.com/"
             },
             new GoogleAppDef {
-                Id = "appsscript", Name = "Apps Script", Category = "Cloud, AI & Dev", Badge = "Scr", AccentHex = "#8AB4F8",
+                Id = "appsscript", Name = "Apps Script", IconFile = "apps-script.png",
                 Url = "https://script.google.com/home"
             },
-
-            // 5. Media, Maps & Research
             new GoogleAppDef {
-                Id = "youtube", Name = "YouTube (Ad-Pruned)", Category = "Media, Maps & Research", Badge = "YT", AccentHex = "#F28B82",
+                Id = "developers", Name = "Developers", IconFile = "google-developers.png",
+                Url = "https://developers.google.com/"
+            },
+            new GoogleAppDef {
+                Id = "youtube", Name = "YouTube", IconFile = "youtube.png",
                 Url = "https://www.youtube.com/",
                 SubItems = new List<SubItemDef> {
                     new SubItemDef { Name = "Home Feed", Url = "https://www.youtube.com/" },
                     new SubItemDef { Name = "Subscriptions", Url = "https://www.youtube.com/feed/subscriptions" },
                     new SubItemDef { Name = "Watch Later", Url = "https://www.youtube.com/playlist?list=WL" },
-                    new SubItemDef { Name = "History", Url = "https://www.youtube.com/feed/history" },
-                    new SubItemDef { Name = "YouTube Studio", Url = "https://studio.youtube.com/" }
+                    new SubItemDef { Name = "History", Url = "https://www.youtube.com/feed/history" }
                 }
             },
             new GoogleAppDef {
-                Id = "ytmusic", Name = "YouTube Music", Category = "Media, Maps & Research", Badge = "YTM", AccentHex = "#F28B82",
+                Id = "ytmusic", Name = "YouTube Music", IconFile = "youtube-music.png",
                 Url = "https://music.youtube.com/"
             },
             new GoogleAppDef {
-                Id = "photos", Name = "Google Photos", Category = "Media, Maps & Research", Badge = "Pho", AccentHex = "#FDD663",
+                Id = "photos", Name = "Photos", IconFile = "google-photos.png",
                 Url = "https://photos.google.com/",
                 SubItems = new List<SubItemDef> {
                     new SubItemDef { Name = "Photos Stream", Url = "https://photos.google.com/" },
                     new SubItemDef { Name = "Albums", Url = "https://photos.google.com/albums" },
-                    new SubItemDef { Name = "Favorites", Url = "https://photos.google.com/favorites" },
-                    new SubItemDef { Name = "Trash", Url = "https://photos.google.com/trash" }
+                    new SubItemDef { Name = "Favorites", Url = "https://photos.google.com/favorites" }
                 }
             },
             new GoogleAppDef {
-                Id = "maps", Name = "Google Maps", Category = "Media, Maps & Research", Badge = "Map", AccentHex = "#81C995",
-                Url = "https://www.google.com/maps",
-                SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "Explore Map", Url = "https://www.google.com/maps" },
-                    new SubItemDef { Name = "Directions", Url = "https://www.google.com/maps/dir/" },
-                    new SubItemDef { Name = "Saved Places", Url = "https://www.google.com/maps/contrib/" }
-                }
+                Id = "maps", Name = "Maps", IconFile = "google-maps.png",
+                Url = "https://www.google.com/maps"
             },
             new GoogleAppDef {
-                Id = "earth", Name = "Google Earth", Category = "Media, Maps & Research", Badge = "Ert", AccentHex = "#8AB4F8",
+                Id = "earth", Name = "Earth", IconFile = "google-earth.png",
                 Url = "https://earth.google.com/web/"
             },
             new GoogleAppDef {
-                Id = "translate", Name = "Google Translate", Category = "Media, Maps & Research", Badge = "Trn", AccentHex = "#8AB4F8",
+                Id = "translate", Name = "Translate", IconFile = "google-translate.png",
                 Url = "https://translate.google.com/"
             },
             new GoogleAppDef {
-                Id = "scholar", Name = "Google Scholar", Category = "Media, Maps & Research", Badge = "Sch", AccentHex = "#8AB4F8",
+                Id = "scholar", Name = "Scholar", IconFile = "google-scholar.png",
                 Url = "https://scholar.google.com/"
             },
             new GoogleAppDef {
-                Id = "news", Name = "Google News", Category = "Media, Maps & Research", Badge = "Nws", AccentHex = "#8AB4F8",
+                Id = "news", Name = "News", IconFile = "google-news.png",
                 Url = "https://news.google.com/"
             },
             new GoogleAppDef {
-                Id = "travel", Name = "Flights & Travel", Category = "Media, Maps & Research", Badge = "Flt", AccentHex = "#8AB4F8",
+                Id = "travel", Name = "Travel", IconFile = "flights-and-travel.png",
                 Url = "https://www.google.com/travel/flights",
                 SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "Google Flights", Url = "https://www.google.com/travel/flights" },
+                    new SubItemDef { Name = "Flights", Url = "https://www.google.com/travel/flights" },
                     new SubItemDef { Name = "Hotels", Url = "https://www.google.com/travel/hotels" },
                     new SubItemDef { Name = "Trips", Url = "https://www.google.com/travel/" }
                 }
             },
-
-            // 6. Business & Analytics
             new GoogleAppDef {
-                Id = "admin", Name = "Workspace Admin", Category = "Business & Analytics", Badge = "Adm", AccentHex = "#8AB4F8",
-                Url = "https://admin.google.com/",
-                SubItems = new List<SubItemDef> {
-                    new SubItemDef { Name = "Admin Console", Url = "https://admin.google.com/" },
-                    new SubItemDef { Name = "Users Directory", Url = "https://admin.google.com/ac/users" },
-                    new SubItemDef { Name = "Groups", Url = "https://admin.google.com/ac/groups" },
-                    new SubItemDef { Name = "Billing", Url = "https://admin.google.com/ac/billing" }
-                }
+                Id = "fonts", Name = "Fonts", IconFile = "google-fonts.png",
+                Url = "https://fonts.google.com/"
             },
             new GoogleAppDef {
-                Id = "finance", Name = "Google Finance", Category = "Business & Analytics", Badge = "Fin", AccentHex = "#81C995",
+                Id = "admin", Name = "Admin", IconFile = "workspace-admin.png",
+                Url = "https://admin.google.com/"
+            },
+            new GoogleAppDef {
+                Id = "finance", Name = "Finance", IconFile = "google-finance.png",
                 Url = "https://www.google.com/finance/"
             },
             new GoogleAppDef {
-                Id = "analytics", Name = "Google Analytics", Category = "Business & Analytics", Badge = "GA", AccentHex = "#FDD663",
+                Id = "analytics", Name = "Analytics", IconFile = "google-analytics.png",
                 Url = "https://analytics.google.com/"
             },
             new GoogleAppDef {
-                Id = "trends", Name = "Google Trends", Category = "Business & Analytics", Badge = "Trd", AccentHex = "#8AB4F8",
+                Id = "trends", Name = "Trends", IconFile = "google-trends.png",
                 Url = "https://trends.google.com/trends/"
             },
             new GoogleAppDef {
-                Id = "searchconsole", Name = "Search Console", Category = "Business & Analytics", Badge = "GSC", AccentHex = "#8AB4F8",
+                Id = "searchconsole", Name = "Search Console", IconFile = "search-console.png",
                 Url = "https://search.google.com/search-console"
             }
         };
     }
 
     // =========================================================================
-    // TRUSTED-TYPES-SAFE INJECTED JS & 4-LAYER YOUTUBE / AD-BLOCK SCRIPT
-    // (Consolidated from MakoApps Tauri v2 + SVGDesign Notification Bridge)
+    // TRUSTED-TYPES-SAFE INJECTED JS (REQ-05: STRIPPED 4-LAYER YOUTUBE AD-PRUNER)
     // =========================================================================
     public static class InjectedScripts
     {
-        public static readonly string[] BlockedUrlPatterns = new[]
-        {
-            "*://*.doubleclick.net/*",
-            "*://*.googlesyndication.com/*",
-            "*://*.googleadservices.com/*",
-            "*://*.adservice.google.com/*",
-            "*://*.google-analytics.com/*",
-            "*://*.googletagmanager.com/*",
-            "*://*.zedo.com/*",
-            "*://*.scorecardresearch.com/*",
-            "*://www.youtube.com/api/stats/ads*",
-            "*://www.youtube.com/pagead/*",
-            "*://www.youtube.com/ptracking*",
-            "*://www.youtube.com/get_midroll_*"
-        };
-
         public const string DocumentStartInitScript = @"
 (function() {
     if (window.__gsuiteContainerInit) return;
     window.__gsuiteContainerInit = true;
 
-    // 1. Keyboard Navigation Bridge (Ctrl+[ Back, Ctrl+] Forward, Alt+Space Command Palette)
-    // Ignores editable inputs so Gmail/Docs indent shortcuts work normally
+    // 1. Keyboard Navigation Bridge (Ctrl+[ Back, Ctrl+] Forward, Ctrl+T Hub, Ctrl+K / Alt+Space Palette)
     window.addEventListener('keydown', function(e) {
         var el = document.activeElement;
         var isEditable = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
         if (!isEditable && e.ctrlKey && !e.shiftKey && !e.altKey) {
             if (e.key === '[') { e.preventDefault(); history.back(); }
             else if (e.key === ']') { e.preventDefault(); history.forward(); }
+        }
+        if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 't' || e.key === 'T')) {
+            e.preventDefault();
+            try { window.chrome.webview.postMessage('cmd:hub'); } catch (_) {}
         }
         if ((e.ctrlKey && (e.key === 'k' || e.key === 'K')) || (e.altKey && e.code === 'Space')) {
             e.preventDefault();
@@ -498,111 +599,19 @@ namespace GSuiteContainer
     window.addEventListener('DOMContentLoaded', function() {
         setTimeout(detectGoogleAccount, 1800);
     });
-
-    // 3. Web Notification Bridge -> Container Banner
-    try {
-        var OrigNotif = window.Notification;
-        if (OrigNotif) {
-            var WrappedNotif = function(title, opts) {
-                try {
-                    var body = (opts && opts.body) ? opts.body : '';
-                    window.chrome.webview.postMessage('notify:' + title + ' | ' + body);
-                } catch (_) {}
-                return new OrigNotif(title, opts);
-            };
-            WrappedNotif.requestPermission = OrigNotif.requestPermission ? OrigNotif.requestPermission.bind(OrigNotif) : function() { return Promise.resolve('granted'); };
-            Object.defineProperty(WrappedNotif, 'permission', { get: function() { return 'granted'; } });
-            window.Notification = WrappedNotif;
-        }
-    } catch (_) {}
-
-    // 4. YouTube 4-Layer Ad-Pruner (Active on youtube.com / music.youtube.com)
-    if (location.hostname.indexOf('youtube.com') !== -1) {
-        var AD_KEYS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams'];
-        function pruneYtPayload(obj) {
-            if (!obj || typeof obj !== 'object') return obj;
-            for (var i = 0; i < AD_KEYS.length; i++) {
-                if (AD_KEYS[i] in obj) delete obj[AD_KEYS[i]];
-            }
-            if (obj.playerResponse && typeof obj.playerResponse === 'object') {
-                for (var j = 0; j < AD_KEYS.length; j++) {
-                    if (AD_KEYS[j] in obj.playerResponse) delete obj.playerResponse[AD_KEYS[j]];
-                }
-            }
-            return obj;
-        }
-
-        // Trap ytInitialPlayerResponse setter
-        var _ytResp = window.ytInitialPlayerResponse;
-        try {
-            Object.defineProperty(window, 'ytInitialPlayerResponse', {
-                configurable: true,
-                get: function() { return _ytResp; },
-                set: function(v) { _ytResp = pruneYtPayload(v); }
-            });
-        } catch (_) {}
-
-        // Wrap JSON.parse for youtubei player endpoints
-        var origFetch = window.fetch;
-        if (origFetch) {
-            window.fetch = function(input, init) {
-                var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
-                if (url.indexOf('/youtubei/v1/player') !== -1 || url.indexOf('/youtubei/v1/next') !== -1) {
-                    return origFetch.apply(this, arguments).then(function(resp) {
-                        return resp.clone().json().then(function(data) {
-                            pruneYtPayload(data);
-                            return new Response(JSON.stringify(data), {
-                                status: resp.status,
-                                statusText: resp.statusText,
-                                headers: resp.headers
-                            });
-                        }).catch(function() { return resp; });
-                    });
-                }
-                return origFetch.apply(this, arguments);
-            };
-        }
-
-        // Cosmetic CSS & 300ms Ad-Skip Watcher (Trusted-Types-safe textContent)
-        window.addEventListener('DOMContentLoaded', function() {
-            try {
-                var st = document.createElement('style');
-                st.textContent = 'ytd-ad-slot-renderer, ytd-banner-promo-renderer, ytd-player-legacy-desktop-watch-ads-renderer, .ytp-ad-overlay-container, #masthead-ad, ytd-in-feed-ad-layout-renderer, ytd-promoted-sparkles-web-renderer { display: none !important; }';
-                (document.head || document.documentElement).appendChild(st);
-            } catch (_) {}
-
-            setInterval(function() {
-                try {
-                    var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button');
-                    if (skipBtn) { skipBtn.click(); return; }
-                    var player = document.querySelector('.html5-video-player.ad-showing');
-                    if (player) {
-                        var v = player.querySelector('video');
-                        if (v && isFinite(v.duration) && v.duration > 0) {
-                            v.muted = true;
-                            v.currentTime = v.duration;
-                        }
-                    }
-                } catch (_) {}
-            }, 300);
-        });
-    }
 })();
 ";
     }
 
     // =========================================================================
-    // MAIN WINDOW | ULTIMATE G-SUITE CONTAINER
+    // MAIN WINDOW | GOOGLE WORKSPACE MATERIAL DESIGN 3 CONTAINER
     // =========================================================================
     public class MainWindow : Window
     {
-        // Win32 P/Invoke for DWM Dark Titlebar, Mica & Global Hotkey
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
-        [DllImport("user32.dll")]
-        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
         private const int HOTKEY_ID_ALT_SPACE = 9001;
         private const int HOTKEY_ID_CTRL_SHIFT_G = 9002;
@@ -612,22 +621,11 @@ namespace GSuiteContainer
         private const uint VK_SPACE = 0x20;
         private const uint VK_G = 0x47;
 
-        // Design Palette (#171717 / #202124 Minimal Dark Glassmorphism)
-        private static readonly SolidColorBrush BgCanvas = BrushFromHex("#171717");
-        private static readonly SolidColorBrush BgElevated = BrushFromHex("#202124");
-        private static readonly SolidColorBrush BgCard = BrushFromHex("#24262A");
-        private static readonly SolidColorBrush BgHover = BrushFromHex("#2E3136");
-        private static readonly SolidColorBrush BorderSubtle = BrushFromHex("#33363C");
-        private static readonly SolidColorBrush TextPrimary = BrushFromHex("#E8EAED");
-        private static readonly SolidColorBrush TextSecondary = BrushFromHex("#9AA0A6");
-        private static readonly SolidColorBrush AccentBlue = BrushFromHex("#8AB4F8");
-        private static readonly SolidColorBrush AccentGreen = BrushFromHex("#81C995");
-        private static readonly SolidColorBrush AccentGold = BrushFromHex("#FDD663");
-        private static readonly SolidColorBrush AccentRed = BrushFromHex("#F28B82");
-        private static readonly SolidColorBrush AccentPurple = BrushFromHex("#C58AF9");
         private static readonly FontFamily UiFont = new FontFamily("Inter, Segoe UI Variable Display, Segoe UI");
 
         // State & Storage
+        private readonly string _appRoot;
+        private readonly string _iconsDir;
         private readonly string _dataRoot;
         private readonly string _configPath;
         private AppConfig _config = new AppConfig();
@@ -635,28 +633,37 @@ namespace GSuiteContainer
         private readonly List<SearchEngineDef> _searchEngines = CatalogRegistry.GetSearchEngines();
         private SearchEngineDef _activeSearchEngine;
         private readonly Dictionary<string, CoreWebView2Environment> _envCache = new Dictionary<string, CoreWebView2Environment>();
+        private readonly Dictionary<string, BitmapImage> _iconCache = new Dictionary<string, BitmapImage>(StringComparer.OrdinalIgnoreCase);
 
-        // Tabs & Split View State
+        // Tabs & View State
         private readonly List<BrowserTabEntry> _tabs = new List<BrowserTabEntry>();
         private BrowserTabEntry? _activeTab;
         private bool _splitViewActive;
         private WebView2? _splitWebView;
         private WebView2? _aiWebView;
-        private string _selectedCategory = "All Services";
         private bool _workspaceLocked;
 
-        // Core UI Controls
-        private StackPanel _workspaceSelectorPanel = null!;
-        private TextBlock _accountBadgeText = null!;
-        private StackPanel _tabStripPanel = null!;
-        private TextBox _omniboxInput = null!;
+        // UI References for Dynamic Theme & Layout Updates
+        private Grid _rootGrid = null!;
+        private Border _topBarBorder = null!;
+        private Button _profilesDropdownBtn = null!;
+        private TextBlock _profilesDropdownLabel = null!;
+        private FlexTabPanel _tabStripPanel = null!;
+        private Border _navBarBorder = null!;
+        private Button _sidebarToggleBtn = null!;
+        private Button _appsGridBtn = null!;
+        private Border _omniBorder = null!;
         private Button _searchEnginePillBtn = null!;
+        private TextBox _omniboxInput = null!;
+        private Border _sidebarBorder = null!;
         private StackPanel _sidebarFavoritesPanel = null!;
         private Grid _contentHostGrid = null!;
         private Grid _homeDashboardOverlay = null!;
-        private WrapPanel _homeAppsWrapPanel = null!;
-        private StackPanel _categoryFilterPanel = null!;
+        private TextBlock _hubTitleText = null!;
+        private TextBlock _hubSubtitleText = null!;
+        private Border _hubSearchBorder = null!;
         private TextBox _homeFilterBox = null!;
+        private WrapPanel _homeAppsWrapPanel = null!;
         private Grid _splitPaneContainer = null!;
         private GridSplitter _splitSplitter = null!;
         private Border _splitRightBorder = null!;
@@ -665,19 +672,21 @@ namespace GSuiteContainer
         private StackPanel _aiProviderTabsPanel = null!;
         private Grid _aiWebViewHost = null!;
         private Grid _commandPaletteOverlay = null!;
+        private Border _commandPaletteModal = null!;
         private TextBox _paletteSearchBox = null!;
         private StackPanel _paletteResultsPanel = null!;
         private Grid _pinLockOverlay = null!;
+        private Border _pinLockCard = null!;
         private PasswordBox _pinInputBox = null!;
         private TextBlock _pinPromptLabel = null!;
-        private TextBlock _statusFooterText = null!;
-        private TextBlock _memoryFooterText = null!;
         private Border _toastBanner = null!;
         private TextBlock _toastText = null!;
-        private DispatcherTimer _telemetryTimer = null!;
 
         public MainWindow()
         {
+            _appRoot = AppDomain.CurrentDomain.BaseDirectory;
+            _iconsDir = System.IO.Path.Combine(_appRoot, "assets", "icons");
+
             _dataRoot = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "GSuiteContainer");
@@ -688,21 +697,86 @@ namespace GSuiteContainer
             _activeSearchEngine = _searchEngines.FirstOrDefault(s => s.Id == _config.DefaultSearchEngineId) ?? _searchEngines[0];
             RebuildAppCatalog();
 
-            Title = "G-Suite Container | Unified Workspace & App Hub";
+            Title = "Google Workspace";
             Width = 1480;
             Height = 930;
-            MinWidth = 960;
-            MinHeight = 620;
+            MinWidth = 920;
+            MinHeight = 600;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            Background = BgCanvas;
-            Foreground = TextPrimary;
+            Background = Md3Theme.Surface;
+            Foreground = Md3Theme.TextPrimary;
             FontFamily = UiFont;
+
+            // REQ-10: Set official Google Apps for Work icon on Main Window
+            LoadMainWindowIcon();
 
             BuildUserInterface();
             RegisterKeyboardShortcuts();
 
             Loaded += OnMainWindowLoaded;
             Closing += (s, e) => SaveConfig();
+        }
+
+        private void LoadMainWindowIcon()
+        {
+            try
+            {
+                string icoPath = System.IO.Path.Combine(_appRoot, "assets", "app-icon.ico");
+                string pngPath = System.IO.Path.Combine(_iconsDir, "google-apps-for-work.png");
+                if (File.Exists(pngPath))
+                {
+                    Icon = LoadIconBitmap("google-apps-for-work.png");
+                }
+                else if (File.Exists(icoPath))
+                {
+                    Icon = BitmapFrame.Create(new Uri(icoPath, UriKind.Absolute));
+                }
+            }
+            catch { }
+        }
+
+        private BitmapImage? LoadIconBitmap(string iconFileName)
+        {
+            if (string.IsNullOrWhiteSpace(iconFileName)) iconFileName = "google-apps-for-work.png";
+            if (_iconCache.TryGetValue(iconFileName, out var cached)) return cached;
+
+            try
+            {
+                string fullPath = System.IO.Path.Combine(_iconsDir, iconFileName);
+                if (!File.Exists(fullPath))
+                {
+                    fullPath = System.IO.Path.Combine(_iconsDir, "google-apps-for-work.png");
+                }
+                if (File.Exists(fullPath))
+                {
+                    var bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri(fullPath, UriKind.Absolute);
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    bmp.Freeze();
+                    _iconCache[iconFileName] = bmp;
+                    return bmp;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private Image CreateCrispIconImage(string iconFileName, double size, Thickness margin = default)
+        {
+            var img = new Image
+            {
+                Width = size,
+                Height = size,
+                Stretch = Stretch.Uniform,
+                Margin = margin,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Source = LoadIconBitmap(iconFileName)
+            };
+            RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+            return img;
         }
 
         // =====================================================================
@@ -720,6 +794,14 @@ namespace GSuiteContainer
                 }
             }
             catch { _config = new AppConfig(); }
+
+            foreach (var ws in _config.Workspaces)
+            {
+                if (string.IsNullOrWhiteSpace(ws.DetectedAccount))
+                {
+                    ws.DetectedAccount = "george.christosp@gmail.com";
+                }
+            }
         }
 
         private void SaveConfig()
@@ -727,7 +809,7 @@ namespace GSuiteContainer
             try
             {
                 var ws = GetActiveWorkspace();
-                ws.OpenTabUrls = _tabs.Where(t => !t.IsHomeTab && !string.IsNullOrWhiteSpace(t.Url) && t.Url != "about:blank")
+                ws.OpenTabUrls = _tabs.Where(t => !string.IsNullOrWhiteSpace(t.Url) && t.Url != "about:blank")
                                       .Select(t => t.Url).ToList();
                 var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(_configPath, json);
@@ -752,120 +834,155 @@ namespace GSuiteContainer
             foreach (var custom in _config.CustomApps)
             {
                 custom.IsCustom = true;
-                custom.Category = "Custom Apps";
+                if (string.IsNullOrWhiteSpace(custom.IconFile))
+                    custom.IconFile = "google-apps-for-work.png";
                 custom.IsFavorite = _config.FavoriteAppIds.Contains(custom.Id);
                 _allApps.Add(custom);
             }
         }
 
         // =====================================================================
-        // UI CONSTRUCTION (#171717 / #202124 DARK GLASSMORPHIC WORKSPACE)
+        // UI CONSTRUCTION (GOOGLE WORKSPACE MATERIAL DESIGN 3)
         // =====================================================================
         private void BuildUserInterface()
         {
-            var rootGrid = new Grid { Background = BgCanvas };
-            rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(46) }); // Row 0: Workspace & Tab Bar
-            rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(48) }); // Row 1: Navigation, Omnibox & Tool Actions
-            rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // Row 2: Main Body
-            rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(28) }); // Row 3: Telemetry & Quick-Create Status Bar
+            _rootGrid = new Grid { Background = Md3Theme.Surface };
+            _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(44) }); // Row 0: Profiles Dropdown + Flex Tab Bar
+            _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(46) }); // Row 1: Sidebar Toggle, Navigation, MD3 Omnibox & Tools
+            _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // Row 2: Main Body (REQ-02: No Footer Row)
 
             // -----------------------------------------------------------------
-            // ROW 0: WORKSPACE ISOLATION PILLS + MULTI-TAB STRIP + QUICK ACTIONS
+            // ROW 0: CONSOLIDATED PROFILES DROPDOWN + FLEX TAB STRIP
             // -----------------------------------------------------------------
-            var topBarBorder = new Border
+            _topBarBorder = new Border
             {
-                Background = BgElevated,
-                BorderBrush = BorderSubtle,
+                Background = Md3Theme.Surface,
+                BorderBrush = Md3Theme.Outline,
                 BorderThickness = new Thickness(0, 0, 0, 1),
                 Padding = new Thickness(10, 0, 10, 0)
             };
             var topBarGrid = new Grid();
-            topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Workspaces
-            topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Tabs
-            topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Right Controls
+            topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // REQ-08: Profiles Dropdown
+            topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // REQ-03: Flex Tabs
+            topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Session Controls
 
-            _workspaceSelectorPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(_workspaceSelectorPanel, 0);
-            topBarGrid.Children.Add(_workspaceSelectorPanel);
-
-            var tabScroll = new ScrollViewer
+            // REQ-08: Single Consolidated "Profiles" Dropdown Button
+            _profilesDropdownBtn = new Button
             {
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Margin = new Thickness(10, 0, 10, 0),
+                Background = Md3Theme.SurfaceContainer,
+                Foreground = Md3Theme.TextPrimary,
+                BorderBrush = Md3Theme.Outline,
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(0, 0, 8, 0),
+                Cursor = Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Switch or manage isolated Google Workspace profiles"
+            };
+            var profStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            profStack.Children.Add(CreateCrispIconImage("google-account.png", 16, new Thickness(0, 0, 7, 0)));
+            _profilesDropdownLabel = new TextBlock
+            {
+                FontSize = 12,
+                FontWeight = FontWeights.Medium,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            _tabStripPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            tabScroll.Content = _tabStripPanel;
-            Grid.SetColumn(tabScroll, 1);
-            topBarGrid.Children.Add(tabScroll);
+            profStack.Children.Add(_profilesDropdownLabel);
+            _profilesDropdownBtn.Content = profStack;
+            _profilesDropdownBtn.Click += OnProfilesDropdownClick;
+            Grid.SetColumn(_profilesDropdownBtn, 0);
+            topBarGrid.Children.Add(_profilesDropdownBtn);
+
+            // REQ-03: Custom FlexTabPanel (Zero ScrollViewer, Zero Horizontal Scrollbar)
+            _tabStripPanel = new FlexTabPanel
+            {
+                Margin = new Thickness(4, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(_tabStripPanel, 1);
+            topBarGrid.Children.Add(_tabStripPanel);
 
             var rightTopControls = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            _accountBadgeText = new TextBlock
-            {
-                Text = "Isolated Session",
-                Foreground = AccentGreen,
-                FontSize = 11.5,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 10, 0)
-            };
-            rightTopControls.Children.Add(_accountBadgeText);
-
-            var hibernateBtn = CreateToolbarButton("zzz Hibernate Bg", "Free RAM from background tabs", AccentGold);
-            hibernateBtn.Click += (s, e) => HibernateBackgroundTabs();
-            rightTopControls.Children.Add(hibernateBtn);
-
-            var lockBtn = CreateToolbarButton("Lock / PIN", "Lock or set SHA-256 PIN for current workspace", TextSecondary);
+            var lockBtn = CreateToolbarButton("Lock", "Lock or set SHA-256 PIN for current profile");
             lockBtn.Click += (s, e) => PromptOrLockWorkspace();
             rightTopControls.Children.Add(lockBtn);
 
             Grid.SetColumn(rightTopControls, 2);
             topBarGrid.Children.Add(rightTopControls);
-            topBarBorder.Child = topBarGrid;
-            Grid.SetRow(topBarBorder, 0);
-            rootGrid.Children.Add(topBarBorder);
+            _topBarBorder.Child = topBarGrid;
+            Grid.SetRow(_topBarBorder, 0);
+            _rootGrid.Children.Add(_topBarBorder);
 
             // -----------------------------------------------------------------
-            // ROW 1: NAVIGATION + SCOPED OMNIBOX + SPLIT VIEW / MINI-PLAYER / AI
+            // ROW 1: SIDEBAR TOGGLE + APPS GRID + NAV + MD3 OMNIBOX + TOOLS
             // -----------------------------------------------------------------
-            var navBarBorder = new Border
+            _navBarBorder = new Border
             {
-                Background = BgCanvas,
-                BorderBrush = BorderSubtle,
+                Background = Md3Theme.SurfaceContainer,
+                BorderBrush = Md3Theme.Outline,
                 BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(10, 5, 10, 5)
+                Padding = new Thickness(10, 4, 10, 4)
             };
             var navGrid = new Grid();
-            navGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Back/Fwd/Reload/Home
-            navGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Scoped Omnibox
-            navGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Power tools
+            navGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Sidebar Toggle + Apps Grid + Back/Fwd/Reload
+            navGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Pill Omnibox
+            navGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Tools (No Shield: ON)
 
             var navLeft = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            var btnHome = CreateToolbarButton("Apps Grid", "Show 38-Service Launcher Dashboard (Ctrl+T)", AccentBlue);
-            btnHome.Click += (s, e) => ShowLauncherDashboard();
-            var btnBack = CreateToolbarButton("←", "Back (Ctrl+[)", TextPrimary);
+
+            // REQ-07: Smooth Collapsible Left Sidebar Toggle
+            _sidebarToggleBtn = CreateToolbarButton("☰", "Toggle Left Favorites Sidebar");
+            _sidebarToggleBtn.FontSize = 14;
+            _sidebarToggleBtn.Click += (s, e) => ToggleSidebarCollapse();
+            navLeft.Children.Add(_sidebarToggleBtn);
+
+            // REQ-04: Rebound Apps Grid Button (toggles Container Hub cleanly over WebView2)
+            _appsGridBtn = new Button
+            {
+                Background = Md3Theme.PrimaryContainer,
+                Foreground = Md3Theme.OnPrimaryContainer,
+                BorderBrush = Md3Theme.Outline,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(0, 0, 5, 0),
+                Cursor = Cursors.Hand,
+                ToolTip = "Toggle Google Workspace Container Hub (Ctrl+T)"
+            };
+            var appsGridContent = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            appsGridContent.Children.Add(CreateCrispIconImage("google-apps-for-work.png", 16, new Thickness(0, 0, 6, 0)));
+            appsGridContent.Children.Add(new TextBlock
+            {
+                Text = "Apps Grid",
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            _appsGridBtn.Content = appsGridContent;
+            _appsGridBtn.Click += (s, e) => ToggleLauncherDashboard();
+            navLeft.Children.Add(_appsGridBtn);
+
+            var btnBack = CreateToolbarButton("←", "Back (Ctrl+[)");
             btnBack.Click += (s, e) => { if (_activeTab?.WebView?.CoreWebView2?.CanGoBack == true) _activeTab.WebView.CoreWebView2.GoBack(); };
-            var btnFwd = CreateToolbarButton("→", "Forward (Ctrl+])", TextPrimary);
+            var btnFwd = CreateToolbarButton("→", "Forward (Ctrl+])");
             btnFwd.Click += (s, e) => { if (_activeTab?.WebView?.CoreWebView2?.CanGoForward == true) _activeTab.WebView.CoreWebView2.GoForward(); };
-            var btnReload = CreateToolbarButton("↻", "Reload (Ctrl+R)", TextPrimary);
+            var btnReload = CreateToolbarButton("↻", "Reload (Ctrl+R)");
             btnReload.Click += (s, e) => { _activeTab?.WebView?.CoreWebView2?.Reload(); };
 
-            navLeft.Children.Add(btnHome);
             navLeft.Children.Add(btnBack);
             navLeft.Children.Add(btnFwd);
             navLeft.Children.Add(btnReload);
             Grid.SetColumn(navLeft, 0);
             navGrid.Children.Add(navLeft);
 
-            // Omnibox with Scoped Search Engine Selector
-            var omniBorder = new Border
+            // Pill-Shaped Material Design 3 Omnibox
+            _omniBorder = new Border
             {
-                Background = BgElevated,
-                BorderBrush = BorderSubtle,
+                Background = Md3Theme.SurfaceVariant,
+                BorderBrush = Md3Theme.Outline,
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(7),
+                CornerRadius = new CornerRadius(18),
                 Margin = new Thickness(10, 0, 10, 0),
-                Padding = new Thickness(6, 2, 6, 2)
+                Padding = new Thickness(10, 2, 10, 2)
             };
             var omniGrid = new Grid();
             omniGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -874,14 +991,14 @@ namespace GSuiteContainer
 
             _searchEnginePillBtn = new Button
             {
-                Content = $"Search: {_activeSearchEngine.Name} ▾",
-                Background = BrushFromHex("#2C3038"),
-                Foreground = BrushFromHex(_activeSearchEngine.AccentHex),
+                Content = $"{_activeSearchEngine.Name} ▾",
+                Background = Brushes.Transparent,
+                Foreground = Md3Theme.Primary,
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(8, 3, 8, 3),
-                Margin = new Thickness(0, 0, 8, 0),
+                Padding = new Thickness(6, 2, 8, 2),
+                Margin = new Thickness(0, 0, 6, 0),
                 Cursor = Cursors.Hand,
-                FontSize = 11.5,
+                FontSize = 12,
                 FontWeight = FontWeights.SemiBold
             };
             _searchEnginePillBtn.Click += OnSearchEngineSelectorClick;
@@ -891,91 +1008,86 @@ namespace GSuiteContainer
             _omniboxInput = new TextBox
             {
                 Background = Brushes.Transparent,
-                Foreground = TextPrimary,
-                CaretBrush = AccentBlue,
+                Foreground = Md3Theme.TextPrimary,
+                CaretBrush = Md3Theme.Primary,
                 BorderThickness = new Thickness(0),
                 VerticalContentAlignment = VerticalAlignment.Center,
                 FontSize = 13,
-                Text = "Search Google, enter URL, or type prefix (yt / m / d / doc / ai / gh)..."
+                Text = "Search Google Workspace, enter URL, or type prefix (g / yt / m / d / doc / cal / ai)..."
             };
             _omniboxInput.GotFocus += (s, e) =>
             {
-                if (_omniboxInput.Text.StartsWith("Search Google,")) _omniboxInput.Text = "";
+                if (_omniboxInput.Text.StartsWith("Search Google")) _omniboxInput.Text = "";
                 _omniboxInput.SelectAll();
             };
             _omniboxInput.KeyDown += OnOmniboxKeyDown;
             Grid.SetColumn(_omniboxInput, 1);
             omniGrid.Children.Add(_omniboxInput);
 
-            var paletteTriggerBtn = CreateToolbarButton("⌘K / Alt+Space", "Open Spotlight Command Palette", TextSecondary);
+            var paletteTriggerBtn = CreateToolbarButton("⌘K", "Spotlight Command Palette (Ctrl+K / Alt+Space)");
+            paletteTriggerBtn.BorderThickness = new Thickness(0);
+            paletteTriggerBtn.Background = Brushes.Transparent;
             paletteTriggerBtn.Click += (s, e) => ToggleCommandPalette();
             Grid.SetColumn(paletteTriggerBtn, 2);
             omniGrid.Children.Add(paletteTriggerBtn);
 
-            omniBorder.Child = omniGrid;
-            Grid.SetColumn(omniBorder, 1);
-            navGrid.Children.Add(omniBorder);
+            _omniBorder.Child = omniGrid;
+            Grid.SetColumn(_omniBorder, 1);
+            navGrid.Children.Add(_omniBorder);
 
-            // Right Power Tools: AdBlock Toggle, Split View, Mini-Player, Popout, External Browser, AI Companion
+            // Right Tools (REQ-05: Shield: ON stripped; REQ-06: Browser stays in-container)
             var navRight = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
 
-            var adBlockBtn = CreateToolbarButton(_config.AdBlockEnabled ? "Shield: ON" : "Shield: OFF",
-                "4-Layer YouTube Ad-Pruner & Network Tracker Shield", _config.AdBlockEnabled ? AccentGreen : TextSecondary);
-            adBlockBtn.Click += (s, e) =>
-            {
-                _config.AdBlockEnabled = !_config.AdBlockEnabled;
-                adBlockBtn.Content = _config.AdBlockEnabled ? "Shield: ON" : "Shield: OFF";
-                adBlockBtn.Foreground = _config.AdBlockEnabled ? AccentGreen : TextSecondary;
-                ShowToast(_config.AdBlockEnabled ? "4-Layer Ad & Tracker Shield enabled." : "Ad & Tracker Shield paused.");
-            };
-            navRight.Children.Add(adBlockBtn);
-
-            var splitBtn = CreateToolbarButton("Split View (Alt+S)", "Toggle Dual-Pane Side-by-Side Workspace", AccentBlue);
+            var splitBtn = CreateToolbarButton("Split View", "Toggle Dual-Pane Side-by-Side Workspace (Alt+S)");
             splitBtn.Click += (s, e) => ToggleSplitView();
             navRight.Children.Add(splitBtn);
 
-            var miniPlayerBtn = CreateToolbarButton("PiP Mini (Alt+P)", "Pop current tab into Always-on-Top Mini-Player", AccentGold);
+            var miniPlayerBtn = CreateToolbarButton("PiP Mini", "Pop current tab into Always-on-Top Mini-Player (Alt+P)");
             miniPlayerBtn.Click += (s, e) => OpenMiniPlayerForActiveTab();
             navRight.Children.Add(miniPlayerBtn);
 
-            var extBtn = CreateToolbarButton("↗ Browser", "Open current URL in system default browser", TextSecondary);
-            extBtn.Click += (s, e) => OpenActiveUrlInSystemBrowser();
-            navRight.Children.Add(extBtn);
+            var browserBtn = CreateToolbarButton("Browser", "Open in-container Google Web Browser tab");
+            browserBtn.Click += async (s, e) => await OpenInContainerBrowserTabAsync();
+            navRight.Children.Add(browserBtn);
 
-            var aiBtn = CreateToolbarButton("✦ AI Drawer (Alt+A)", "Toggle Free Official AI Companion (Gemini, NotebookLM, Claude, ChatGPT)", AccentPurple);
+            var aiBtn = CreateToolbarButton("✦ AI Drawer", "Toggle Official AI Companion Drawer (Alt+A)");
+            aiBtn.Foreground = Md3Theme.Primary;
+            aiBtn.FontWeight = FontWeights.SemiBold;
             aiBtn.Click += (s, e) => ToggleAiDrawer();
             navRight.Children.Add(aiBtn);
 
             Grid.SetColumn(navRight, 2);
             navGrid.Children.Add(navRight);
-            navBarBorder.Child = navGrid;
-            Grid.SetRow(navBarBorder, 1);
-            rootGrid.Children.Add(navBarBorder);
+            _navBarBorder.Child = navGrid;
+            Grid.SetRow(_navBarBorder, 1);
+            _rootGrid.Children.Add(_navBarBorder);
 
             // -----------------------------------------------------------------
-            // ROW 2: MAIN BODY (LEFT DOCK + WEBVIEW/SPLIT HOST + RIGHT AI DRAWER)
+            // ROW 2: MAIN BODY (COLLAPSIBLE LEFT DOCK + WEBVIEW/HUB + AI DRAWER)
             // -----------------------------------------------------------------
             var bodyGrid = new Grid();
-            bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(66) }); // Left Dock
+            bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Collapsible Left Dock
             bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Center Content
             bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Right AI Drawer
 
-            // Left Dock (Pinned Favorites + Custom App Adder)
-            var sidebarBorder = new Border
+            // REQ-07: Smooth Collapsible Left Dock with Official Product Icons
+            _sidebarBorder = new Border
             {
-                Background = BgElevated,
-                BorderBrush = BorderSubtle,
+                Width = _config.SidebarCollapsed ? 0 : 64,
+                Background = Md3Theme.Surface,
+                BorderBrush = Md3Theme.Outline,
                 BorderThickness = new Thickness(0, 0, 1, 0),
-                Padding = new Thickness(4, 8, 4, 8)
+                Padding = new Thickness(0, 10, 0, 10),
+                ClipToBounds = true
             };
             var sidebarScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden };
             _sidebarFavoritesPanel = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Center };
             sidebarScroll.Content = _sidebarFavoritesPanel;
-            sidebarBorder.Child = sidebarScroll;
-            Grid.SetColumn(sidebarBorder, 0);
-            bodyGrid.Children.Add(sidebarBorder);
+            _sidebarBorder.Child = sidebarScroll;
+            Grid.SetColumn(_sidebarBorder, 0);
+            bodyGrid.Children.Add(_sidebarBorder);
 
-            // Center Area: Split-Pane Container + Home Dashboard Overlay + Command Palette Overlay + Toast Banner
+            // Center Area
             var centerWrapper = new Grid();
 
             _splitPaneContainer = new Grid();
@@ -983,7 +1095,7 @@ namespace GSuiteContainer
             _splitPaneContainer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _splitPaneContainer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
 
-            _contentHostGrid = new Grid { Background = BgCanvas };
+            _contentHostGrid = new Grid { Background = Md3Theme.Surface };
             Grid.SetColumn(_contentHostGrid, 0);
             _splitPaneContainer.Children.Add(_contentHostGrid);
 
@@ -992,7 +1104,7 @@ namespace GSuiteContainer
                 Width = 5,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Stretch,
-                Background = BorderSubtle,
+                Background = Md3Theme.Outline,
                 Visibility = Visibility.Collapsed
             };
             Grid.SetColumn(_splitSplitter, 1);
@@ -1004,11 +1116,11 @@ namespace GSuiteContainer
 
             centerWrapper.Children.Add(_splitPaneContainer);
 
-            // Home Launcher Dashboard (38 Google Apps + Deep SubItems + Quick-Create Bar)
+            // Container Hub Overlay (REQ-01 & REQ-10: Clean Icon + Title Cards, Zero Category Pills)
             _homeDashboardOverlay = BuildHomeDashboardOverlay();
             centerWrapper.Children.Add(_homeDashboardOverlay);
 
-            // Spotlight Command Palette Overlay (Alt+Space / Ctrl+K)
+            // Spotlight Command Palette Overlay
             _commandPaletteOverlay = BuildCommandPaletteOverlay();
             centerWrapper.Children.Add(_commandPaletteOverlay);
 
@@ -1016,11 +1128,11 @@ namespace GSuiteContainer
             _pinLockOverlay = BuildPinLockOverlay();
             centerWrapper.Children.Add(_pinLockOverlay);
 
-            // Notification / Status Toast Banner
+            // Toast Banner
             _toastBanner = new Border
             {
-                Background = BrushFromHex("#282C34"),
-                BorderBrush = AccentBlue,
+                Background = Md3Theme.SurfaceContainer,
+                BorderBrush = Md3Theme.Primary,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(14, 8, 14, 8),
@@ -1029,141 +1141,110 @@ namespace GSuiteContainer
                 VerticalAlignment = VerticalAlignment.Top,
                 Visibility = Visibility.Collapsed
             };
-            _toastText = new TextBlock { Foreground = TextPrimary, FontSize = 12.5, FontWeight = FontWeights.Medium };
+            _toastText = new TextBlock { Foreground = Md3Theme.TextPrimary, FontSize = 12.5, FontWeight = FontWeights.Medium };
             _toastBanner.Child = _toastText;
             centerWrapper.Children.Add(_toastBanner);
 
             Grid.SetColumn(centerWrapper, 1);
             bodyGrid.Children.Add(centerWrapper);
 
-            // Right AI Companion Drawer (Gemini, NotebookLM, AI Studio, ChatGPT, Claude, Perplexity)
+            // Right AI Companion Drawer
             _aiDrawerBorder = BuildAiCompanionDrawer();
             Grid.SetColumn(_aiDrawerBorder, 2);
             bodyGrid.Children.Add(_aiDrawerBorder);
 
             Grid.SetRow(bodyGrid, 2);
-            rootGrid.Children.Add(bodyGrid);
+            _rootGrid.Children.Add(bodyGrid);
 
-            // -----------------------------------------------------------------
-            // ROW 3: STATUS & QUICK-CREATE FOOTER BAR
-            // -----------------------------------------------------------------
-            var footerBorder = new Border
-            {
-                Background = BgElevated,
-                BorderBrush = BorderSubtle,
-                BorderThickness = new Thickness(0, 1, 0, 0),
-                Padding = new Thickness(12, 0, 12, 0)
-            };
-            var footerGrid = new Grid();
-            footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var quickCreateBar = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            foreach (var qc in CatalogRegistry.GetQuickCreateActions())
-            {
-                var b = new Button
-                {
-                    Content = qc.Label,
-                    Background = Brushes.Transparent,
-                    Foreground = BrushFromHex(qc.Hex),
-                    BorderThickness = new Thickness(0),
-                    Padding = new Thickness(7, 2, 7, 2),
-                    Margin = new Thickness(0, 0, 4, 0),
-                    FontSize = 11,
-                    Cursor = Cursors.Hand
-                };
-                string targetUrl = qc.Url;
-                string title = qc.Label;
-                b.Click += async (s, e) => await OpenAppInTabAsync(title, targetUrl, qc.Badge, qc.Hex, switchToTab: true);
-                quickCreateBar.Children.Add(b);
-            }
-            Grid.SetColumn(quickCreateBar, 0);
-            footerGrid.Children.Add(quickCreateBar);
-
-            _statusFooterText = new TextBlock
-            {
-                Text = "Ready | 100% Unlocked Local Container | Zero Telemetry | Trusted-Types CSP Safe",
-                Foreground = TextSecondary,
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center
-            };
-            Grid.SetColumn(_statusFooterText, 1);
-            footerGrid.Children.Add(_statusFooterText);
-
-            _memoryFooterText = new TextBlock
-            {
-                Text = "Container RAM: -- MB | Tabs: 0",
-                Foreground = AccentGreen,
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetColumn(_memoryFooterText, 2);
-            footerGrid.Children.Add(_memoryFooterText);
-
-            footerBorder.Child = footerGrid;
-            Grid.SetRow(footerBorder, 3);
-            rootGrid.Children.Add(footerBorder);
-
-            Content = rootGrid;
+            Content = _rootGrid;
         }
 
         // =====================================================================
-        // HOME LAUNCHER DASHBOARD (38 APPS + SUBITEMS + CATEGORIES + CUSTOM APP)
+        // CONTAINER HUB (REQ-01 & REQ-10: OFFICIAL ICONS, NO CATEGORY PILLS)
         // =====================================================================
         private Grid BuildHomeDashboardOverlay()
         {
-            var overlay = new Grid { Background = BgCanvas, Visibility = Visibility.Visible };
+            var overlay = new Grid { Background = Md3Theme.Surface, Visibility = Visibility.Visible };
             var scroll = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Padding = new Thickness(32, 24, 32, 32)
+                Padding = new Thickness(40, 28, 40, 36)
             };
-            var mainStack = new StackPanel { MaxWidth = 1240, HorizontalAlignment = HorizontalAlignment.Stretch };
+            var mainStack = new StackPanel { MaxWidth = 1220, HorizontalAlignment = HorizontalAlignment.Stretch };
 
-            // Hero Header + Instant Filter
-            var heroGrid = new Grid { Margin = new Thickness(0, 0, 0, 18) };
+            // Header + Filter + Add Custom App
+            var heroGrid = new Grid { Margin = new Thickness(0, 0, 0, 24) };
             heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var titleStack = new StackPanel();
-            titleStack.Children.Add(new TextBlock
+            var titleRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            titleRow.Children.Add(CreateCrispIconImage("google-apps-for-work.png", 36, new Thickness(0, 0, 14, 0)));
+
+            var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            _hubTitleText = new TextBlock
             {
-                Text = "G-Suite Container Hub",
-                FontSize = 24,
-                FontWeight = FontWeights.Bold,
-                Foreground = TextPrimary
-            });
-            titleStack.Children.Add(new TextBlock
+                Text = "Google Workspace Hub",
+                FontSize = 22,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Md3Theme.TextPrimary
+            };
+            titleStack.Children.Add(_hubTitleText);
+            _hubSubtitleText = new TextBlock
             {
-                Text = "38 Google Services with Deep Sub-Links • Multi-Account Isolation • 4-Layer Ad-Pruner • Split View & Free AI Drawer",
+                Text = "Click any app to launch in a tab, or right-click for quick actions and deep links.",
                 FontSize = 12.5,
-                Foreground = TextSecondary,
-                Margin = new Thickness(0, 4, 0, 0)
-            });
-            Grid.SetColumn(titleStack, 0);
-            heroGrid.Children.Add(titleStack);
+                Foreground = Md3Theme.TextSecondary,
+                Margin = new Thickness(0, 2, 0, 0)
+            };
+            titleStack.Children.Add(_hubSubtitleText);
+            titleRow.Children.Add(titleStack);
+            Grid.SetColumn(titleRow, 0);
+            heroGrid.Children.Add(titleRow);
 
             var rightHeroActions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            _homeFilterBox = new TextBox
+            _hubSearchBorder = new Border
             {
                 Width = 260,
-                Height = 34,
-                Background = BgElevated,
-                Foreground = TextPrimary,
-                CaretBrush = AccentBlue,
-                BorderBrush = BorderSubtle,
+                Height = 36,
+                Background = Md3Theme.SurfaceContainer,
+                BorderBrush = Md3Theme.Outline,
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(10, 6, 10, 6),
-                FontSize = 12.5,
-                Text = ""
+                CornerRadius = new CornerRadius(18),
+                Padding = new Thickness(12, 0, 12, 0)
+            };
+            var hubSearchGrid = new Grid();
+            hubSearchGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            hubSearchGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var searchHintIcon = new TextBlock
+            {
+                Text = "⌕",
+                Foreground = Md3Theme.TextSecondary,
+                FontSize = 15,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 1)
+            };
+            Grid.SetColumn(searchHintIcon, 0);
+            hubSearchGrid.Children.Add(searchHintIcon);
+
+            _homeFilterBox = new TextBox
+            {
+                Background = Brushes.Transparent,
+                Foreground = Md3Theme.TextPrimary,
+                CaretBrush = Md3Theme.Primary,
+                BorderThickness = new Thickness(0),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                FontSize = 13,
+                Text = "",
+                ToolTip = "Filter Google Workspace apps"
             };
             _homeFilterBox.TextChanged += (s, e) => RenderDashboardCards();
-            rightHeroActions.Children.Add(_homeFilterBox);
+            Grid.SetColumn(_homeFilterBox, 1);
+            hubSearchGrid.Children.Add(_homeFilterBox);
+            _hubSearchBorder.Child = hubSearchGrid;
+            rightHeroActions.Children.Add(_hubSearchBorder);
 
-            var addCustomBtn = CreateToolbarButton("+ Add Custom Web App", "Add any internal or custom web app (Unlimited, Zero Paywall)", AccentGreen);
-            addCustomBtn.Height = 34;
+            var addCustomBtn = CreateToolbarButton("+ Add App", "Add any custom web app to your Workspace Hub");
+            addCustomBtn.Height = 36;
             addCustomBtn.Margin = new Thickness(10, 0, 0, 0);
             addCustomBtn.Click += (s, e) => ShowAddCustomAppDialog();
             rightHeroActions.Children.Add(addCustomBtn);
@@ -1172,11 +1253,7 @@ namespace GSuiteContainer
             heroGrid.Children.Add(rightHeroActions);
             mainStack.Children.Add(heroGrid);
 
-            // Category Pills Bar
-            _categoryFilterPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 18) };
-            mainStack.Children.Add(_categoryFilterPanel);
-
-            // App Cards Grid
+            // REQ-01: Category Filter Pills completely stripped. Clean Grid of Official Icon Cards:
             _homeAppsWrapPanel = new WrapPanel { Orientation = Orientation.Horizontal };
             mainStack.Children.Add(_homeAppsWrapPanel);
 
@@ -1185,55 +1262,17 @@ namespace GSuiteContainer
             return overlay;
         }
 
-        private void RenderCategoryPills()
-        {
-            _categoryFilterPanel.Children.Clear();
-            var categories = new List<string> { "All Services", "Favorites" };
-            categories.AddRange(_allApps.Select(a => a.Category).Distinct());
-
-            foreach (var cat in categories)
-            {
-                bool active = string.Equals(cat, _selectedCategory, StringComparison.OrdinalIgnoreCase);
-                var btn = new Button
-                {
-                    Content = cat,
-                    Background = active ? BrushFromHex("#2B3548") : BgElevated,
-                    Foreground = active ? AccentBlue : TextSecondary,
-                    BorderBrush = active ? AccentBlue : BorderSubtle,
-                    BorderThickness = new Thickness(1),
-                    Padding = new Thickness(12, 5, 12, 5),
-                    Margin = new Thickness(0, 0, 8, 0),
-                    FontSize = 12,
-                    FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal,
-                    Cursor = Cursors.Hand
-                };
-                string c = cat;
-                btn.Click += (s, e) =>
-                {
-                    _selectedCategory = c;
-                    RenderCategoryPills();
-                    RenderDashboardCards();
-                };
-                _categoryFilterPanel.Children.Add(btn);
-            }
-        }
-
         private void RenderDashboardCards()
         {
+            if (_homeAppsWrapPanel == null) return;
             _homeAppsWrapPanel.Children.Clear();
             string query = (_homeFilterBox?.Text ?? "").Trim();
 
             IEnumerable<GoogleAppDef> filtered = _allApps;
-            if (_selectedCategory == "Favorites")
-                filtered = filtered.Where(a => a.IsFavorite);
-            else if (_selectedCategory != "All Services")
-                filtered = filtered.Where(a => string.Equals(a.Category, _selectedCategory, StringComparison.OrdinalIgnoreCase));
-
             if (!string.IsNullOrEmpty(query))
             {
                 filtered = filtered.Where(a =>
                     FuzzyMatch(a.Name, query) ||
-                    FuzzyMatch(a.Category, query) ||
                     a.SubItems.Any(sub => FuzzyMatch(sub.Name, query)));
             }
 
@@ -1243,151 +1282,60 @@ namespace GSuiteContainer
             }
         }
 
+        // Matches Uploaded Reference Image 3 (Keep card: Official Full-Color Icon Left + Clean Product Name Right)
         private Border CreateAppCard(GoogleAppDef app)
         {
             var card = new Border
             {
-                Width = 225,
-                Height = 112,
-                Background = BgCard,
-                BorderBrush = BorderSubtle,
+                Width = 212,
+                Height = 68,
+                Background = Md3Theme.SurfaceContainer,
+                BorderBrush = Md3Theme.Outline,
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
+                CornerRadius = new CornerRadius(12),
                 Margin = new Thickness(0, 0, 14, 14),
-                Padding = new Thickness(14, 12, 14, 12),
-                Cursor = Cursors.Hand
-            };
-
-            card.MouseEnter += (s, e) => { card.Background = BgHover; card.BorderBrush = BrushFromHex(app.AccentHex); };
-            card.MouseLeave += (s, e) => { card.Background = BgCard; card.BorderBrush = BorderSubtle; };
-
-            var grid = new Grid();
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            // Top row: Service Badge + Star Button + Deep SubItems Menu Button
-            var topRow = new Grid();
-            topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var iconBadge = new Border
-            {
-                Width = 34,
-                Height = 34,
-                CornerRadius = new CornerRadius(8),
-                Background = BrushFromHex("#1A1C20"),
-                BorderBrush = BrushFromHex(app.AccentHex),
-                BorderThickness = new Thickness(1.5)
-            };
-            iconBadge.Child = new TextBlock
-            {
-                Text = app.Badge,
-                Foreground = BrushFromHex(app.AccentHex),
-                FontWeight = FontWeights.Bold,
-                FontSize = 12.5,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetColumn(iconBadge, 0);
-            topRow.Children.Add(iconBadge);
-
-            var actionsStack = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var starBtn = new Button
-            {
-                Content = app.IsFavorite ? "★" : "☆",
-                Foreground = app.IsFavorite ? AccentGold : TextSecondary,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                FontSize = 14,
+                Padding = new Thickness(16, 12, 16, 12),
                 Cursor = Cursors.Hand,
-                ToolTip = "Pin / Unpin from Left Dock"
+                ToolTip = app.SubItems.Count > 0
+                    ? $"{app.Name} (Right-click for {app.SubItems.Count} shortcuts & options)"
+                    : $"{app.Name} (Right-click for options)"
             };
-            starBtn.Click += (s, e) =>
+
+            card.MouseEnter += (s, e) =>
             {
-                e.Handled = true;
-                ToggleFavorite(app);
+                card.Background = Md3Theme.SurfaceVariant;
+                card.BorderBrush = Md3Theme.Primary;
             };
-            actionsStack.Children.Add(starBtn);
-
-            if (app.SubItems.Count > 0)
+            card.MouseLeave += (s, e) =>
             {
-                var subBtn = new Button
-                {
-                    Content = $"▾ {app.SubItems.Count}",
-                    Foreground = BrushFromHex(app.AccentHex),
-                    Background = BrushFromHex("#1B1D22"),
-                    BorderThickness = new Thickness(0),
-                    Padding = new Thickness(6, 2, 6, 2),
-                    Margin = new Thickness(4, 0, 0, 0),
-                    FontSize = 11,
-                    Cursor = Cursors.Hand,
-                    ToolTip = "Open Deep Links & Shortcuts"
-                };
-                subBtn.Click += (s, e) =>
-                {
-                    e.Handled = true;
-                    OpenSubItemsMenu(app, subBtn);
-                };
-                actionsStack.Children.Add(subBtn);
-            }
+                card.Background = Md3Theme.SurfaceContainer;
+                card.BorderBrush = Md3Theme.Outline;
+            };
 
-            Grid.SetColumn(actionsStack, 2);
-            topRow.Children.Add(actionsStack);
-            Grid.SetRow(topRow, 0);
-            grid.Children.Add(topRow);
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            // Middle: App Name
+            var iconImg = CreateCrispIconImage(app.IconFile, 32, new Thickness(0, 0, 14, 0));
+            Grid.SetColumn(iconImg, 0);
+            row.Children.Add(iconImg);
+
             var nameBlock = new TextBlock
             {
                 Text = app.Name,
-                Foreground = TextPrimary,
-                FontWeight = FontWeights.SemiBold,
-                FontSize = 14,
-                Margin = new Thickness(0, 10, 0, 0)
+                Foreground = Md3Theme.TextPrimary,
+                FontWeight = FontWeights.Medium,
+                FontSize = 15,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
-            Grid.SetRow(nameBlock, 1);
-            grid.Children.Add(nameBlock);
+            Grid.SetColumn(nameBlock, 1);
+            row.Children.Add(nameBlock);
 
-            // Bottom: Category + Split-View quick button
-            var bottomRow = new Grid();
-            bottomRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            bottomRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            bottomRow.Children.Add(new TextBlock
-            {
-                Text = app.Category,
-                Foreground = TextSecondary,
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center
-            });
-
-            var splitOpenBtn = new Button
-            {
-                Content = "◫ Split",
-                Foreground = TextSecondary,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                FontSize = 10.5,
-                Cursor = Cursors.Hand,
-                ToolTip = "Open in Right Split-View Pane"
-            };
-            splitOpenBtn.Click += async (s, e) =>
-            {
-                e.Handled = true;
-                await OpenUrlInSplitPaneAsync(app.Url);
-            };
-            Grid.SetColumn(splitOpenBtn, 1);
-            bottomRow.Children.Add(splitOpenBtn);
-
-            Grid.SetRow(bottomRow, 2);
-            grid.Children.Add(bottomRow);
-
-            card.Child = grid;
+            card.Child = row;
             card.MouseLeftButtonUp += async (s, e) =>
             {
-                await OpenAppInTabAsync(app.Name, app.Url, app.Badge, app.AccentHex, switchToTab: true);
+                await OpenAppInTabAsync(app.Name, app.Url, app.IconFile, switchToTab: true);
             };
             card.MouseRightButtonUp += (s, e) =>
             {
@@ -1402,20 +1350,41 @@ namespace GSuiteContainer
             var menu = new ContextMenu
             {
                 PlacementTarget = placementTarget,
-                Background = BgElevated,
-                Foreground = TextPrimary,
-                BorderBrush = BorderSubtle
+                Background = Md3Theme.SurfaceContainer,
+                Foreground = Md3Theme.TextPrimary,
+                BorderBrush = Md3Theme.Outline
             };
 
-            var openTabItem = new MenuItem { Header = $"Open {app.Name} in New Tab", Foreground = AccentBlue };
-            openTabItem.Click += async (s, e) => await OpenAppInTabAsync(app.Name, app.Url, app.Badge, app.AccentHex, switchToTab: true);
+            var openTabItem = new MenuItem
+            {
+                Header = $"Open {app.Name} in New Tab",
+                Foreground = Md3Theme.Primary,
+                Icon = CreateCrispIconImage(app.IconFile, 16)
+            };
+            openTabItem.Click += async (s, e) => await OpenAppInTabAsync(app.Name, app.Url, app.IconFile, switchToTab: true);
             menu.Items.Add(openTabItem);
 
-            var openSplitItem = new MenuItem { Header = $"Open {app.Name} in Split View (Right Pane)", Foreground = AccentGreen };
+            var pinItem = new MenuItem
+            {
+                Header = app.IsFavorite ? "Unpin from Left Sidebar" : "Pin to Left Sidebar",
+                Foreground = Md3Theme.TextPrimary
+            };
+            pinItem.Click += (s, e) => ToggleFavorite(app);
+            menu.Items.Add(pinItem);
+
+            var openSplitItem = new MenuItem
+            {
+                Header = $"Open {app.Name} in Split View",
+                Foreground = Md3Theme.TextPrimary
+            };
             openSplitItem.Click += async (s, e) => await OpenUrlInSplitPaneAsync(app.Url);
             menu.Items.Add(openSplitItem);
 
-            var openPopoutItem = new MenuItem { Header = $"Open {app.Name} in Dedicated Popout Window", Foreground = TextPrimary };
+            var openPopoutItem = new MenuItem
+            {
+                Header = $"Open {app.Name} in Popout Window",
+                Foreground = Md3Theme.TextPrimary
+            };
             openPopoutItem.Click += (s, e) => OpenDedicatedPopoutWindow(app.Name, app.Url);
             menu.Items.Add(openPopoutItem);
 
@@ -1424,10 +1393,10 @@ namespace GSuiteContainer
                 menu.Items.Add(new Separator());
                 foreach (var sub in app.SubItems)
                 {
-                    var subItem = new MenuItem { Header = $"↳ {sub.Name}", Foreground = TextPrimary };
+                    var subItem = new MenuItem { Header = sub.Name, Foreground = Md3Theme.TextPrimary };
                     string u = sub.Url;
                     string n = $"{app.Name}: {sub.Name}";
-                    subItem.Click += async (s, e) => await OpenAppInTabAsync(n, u, app.Badge, app.AccentHex, switchToTab: true);
+                    subItem.Click += async (s, e) => await OpenAppInTabAsync(n, u, app.IconFile, switchToTab: true);
                     menu.Items.Add(subItem);
                 }
             }
@@ -1436,60 +1405,104 @@ namespace GSuiteContainer
         }
 
         // =====================================================================
-        // WORKSPACE ISOLATION, SIDEBAR FAVORITES & TAB MANAGEMENT
+        // REQ-07 & REQ-08: PROFILES DROPDOWN, COLLAPSIBLE SIDEBAR & FLEX TABS
         // =====================================================================
-        private void RenderWorkspacePills()
+        private void UpdateProfilesDropdownButton()
         {
-            _workspaceSelectorPanel.Children.Clear();
-            foreach (var ws in _config.Workspaces)
+            var ws = GetActiveWorkspace();
+            string acct = string.IsNullOrWhiteSpace(ws.DetectedAccount) ? "george.christosp@gmail.com" : ws.DetectedAccount;
+            _profilesDropdownLabel.Text = $"Profiles: {acct} ▾";
+            _profilesDropdownLabel.Foreground = Md3Theme.TextPrimary;
+        }
+
+        private void OnProfilesDropdownClick(object sender, RoutedEventArgs e)
+        {
+            var ws = GetActiveWorkspace();
+            var menu = new ContextMenu
             {
-                bool isCurrent = ws.Id == _config.ActiveWorkspaceId;
-                var btn = new Button
+                PlacementTarget = _profilesDropdownBtn,
+                Background = Md3Theme.SurfaceContainer,
+                Foreground = Md3Theme.TextPrimary,
+                BorderBrush = Md3Theme.Outline
+            };
+
+            var acctHeader = new MenuItem
+            {
+                Header = $"Active Account: {ws.DetectedAccount}",
+                IsEnabled = false,
+                FontWeight = FontWeights.SemiBold
+            };
+            menu.Items.Add(acctHeader);
+            menu.Items.Add(new Separator());
+
+            foreach (var profile in _config.Workspaces)
+            {
+                bool isCurrent = profile.Id == _config.ActiveWorkspaceId;
+                string label = isCurrent
+                    ? $"✓ {profile.Name} ({profile.DetectedAccount})"
+                    : $"   {profile.Name} ({profile.DetectedAccount})";
+                var item = new MenuItem
                 {
-                    Content = isCurrent ? $"● {ws.Name}" : ws.Name,
-                    Background = isCurrent ? BrushFromHex("#283142") : Brushes.Transparent,
-                    Foreground = isCurrent ? BrushFromHex(ws.AccentHex) : TextSecondary,
-                    BorderBrush = isCurrent ? BrushFromHex(ws.AccentHex) : BorderSubtle,
-                    BorderThickness = new Thickness(1),
-                    Padding = new Thickness(9, 3, 9, 3),
-                    Margin = new Thickness(0, 0, 5, 0),
-                    FontSize = 11.5,
+                    Header = label,
                     FontWeight = isCurrent ? FontWeights.SemiBold : FontWeights.Normal,
-                    Cursor = Cursors.Hand,
-                    ToolTip = $"Isolated WebView2 Profile: Profiles\\{ws.Id}"
+                    Foreground = isCurrent ? Md3Theme.Primary : Md3Theme.TextPrimary
                 };
-                string targetId = ws.Id;
-                btn.Click += async (s, e) => await SwitchWorkspaceAsync(targetId);
-                _workspaceSelectorPanel.Children.Add(btn);
+                string targetId = profile.Id;
+                item.Click += async (s, args) => await SwitchWorkspaceAsync(targetId);
+                menu.Items.Add(item);
             }
 
-            var addWsBtn = CreateToolbarButton("+ Profile", "Create a new isolated Google account workspace", TextSecondary);
-            addWsBtn.Click += (s, e) => CreateNewWorkspaceDialog();
-            _workspaceSelectorPanel.Children.Add(addWsBtn);
+            menu.Items.Add(new Separator());
+
+            var addProfileItem = new MenuItem { Header = "+ Create New Profile...", Foreground = Md3Theme.Primary };
+            addProfileItem.Click += (s, args) => CreateNewWorkspaceDialog();
+            menu.Items.Add(addProfileItem);
+
+            var hibernateItem = new MenuItem { Header = "Hibernate Background Tabs", Foreground = Md3Theme.TextPrimary };
+            hibernateItem.Click += (s, args) => HibernateBackgroundTabs();
+            menu.Items.Add(hibernateItem);
+
+            var lockItem = new MenuItem { Header = "Lock / Set Profile PIN...", Foreground = Md3Theme.TextPrimary };
+            lockItem.Click += (s, args) => PromptOrLockWorkspace();
+            menu.Items.Add(lockItem);
+
+            menu.IsOpen = true;
+        }
+
+        private void ToggleSidebarCollapse()
+        {
+            _config.SidebarCollapsed = !_config.SidebarCollapsed;
+            double fromW = _sidebarBorder.ActualWidth;
+            double toW = _config.SidebarCollapsed ? 0.0 : 64.0;
+
+            var anim = new DoubleAnimation(fromW, toW, new Duration(TimeSpan.FromMilliseconds(180)))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
+            };
+            _sidebarBorder.BeginAnimation(FrameworkElement.WidthProperty, anim);
+            SaveConfig();
         }
 
         private void RenderSidebarFavorites()
         {
+            if (_sidebarFavoritesPanel == null) return;
             _sidebarFavoritesPanel.Children.Clear();
             foreach (var app in _allApps.Where(a => a.IsFavorite))
             {
                 var btn = new Button
                 {
-                    Width = 46,
-                    Height = 46,
+                    Width = 44,
+                    Height = 44,
                     Margin = new Thickness(0, 0, 0, 8),
-                    Background = BgCard,
-                    Foreground = BrushFromHex(app.AccentHex),
-                    BorderBrush = BorderSubtle,
+                    Background = Md3Theme.SurfaceContainer,
+                    BorderBrush = Md3Theme.Outline,
                     BorderThickness = new Thickness(1),
-                    Content = app.Badge,
-                    FontWeight = FontWeights.Bold,
-                    FontSize = 12,
+                    Content = CreateCrispIconImage(app.IconFile, 24),
                     Cursor = Cursors.Hand,
-                    ToolTip = $"{app.Name} (Right-click for Deep Sub-Links)"
+                    ToolTip = $"{app.Name} (Right-click for options)"
                 };
                 var capturedApp = app;
-                btn.Click += async (s, e) => await OpenAppInTabAsync(capturedApp.Name, capturedApp.Url, capturedApp.Badge, capturedApp.AccentHex, switchToTab: true);
+                btn.Click += async (s, e) => await OpenAppInTabAsync(capturedApp.Name, capturedApp.Url, capturedApp.IconFile, switchToTab: true);
                 btn.MouseRightButtonUp += (s, e) => OpenSubItemsMenu(capturedApp, btn);
                 _sidebarFavoritesPanel.Children.Add(btn);
             }
@@ -1503,28 +1516,75 @@ namespace GSuiteContainer
             string profileDir = System.IO.Path.Combine(_dataRoot, "Profiles", workspaceId);
             Directory.CreateDirectory(profileDir);
 
-            var opts = new CoreWebView2EnvironmentOptions(
-                "--disable-features=msSmartScreenProtection --enable-smooth-scrolling");
+            var opts = new CoreWebView2EnvironmentOptions("--enable-smooth-scrolling");
             var env = await CoreWebView2Environment.CreateAsync(null, profileDir, opts);
             _envCache[workspaceId] = env;
             return env;
         }
 
-        public async Task OpenAppInTabAsync(string title, string url, string badge, string accentHex, bool switchToTab)
+        private string ResolveIconForUrl(string url, string fallbackIcon)
         {
-            // Check if an existing tab in this workspace already points to the same service host/path
+            if (!string.IsNullOrWhiteSpace(fallbackIcon) && fallbackIcon != "google-apps-for-work.png")
+                return fallbackIcon;
+
+            if (string.IsNullOrWhiteSpace(url)) return "google-apps-for-work.png";
+            string u = url.ToLowerInvariant();
+            if (u.Contains("mail.google.com/chat")) return "google-chat.png";
+            if (u.Contains("mail.google.com")) return "gmail.png";
+            if (u.Contains("calendar.google.com")) return "google-calendar.png";
+            if (u.Contains("drive.google.com")) return "google-drive.png";
+            if (u.Contains("docs.google.com/document")) return "google-docs.png";
+            if (u.Contains("docs.google.com/spreadsheets")) return "google-sheets.png";
+            if (u.Contains("docs.google.com/presentation")) return "google-slides.png";
+            if (u.Contains("docs.google.com/forms")) return "google-forms.png";
+            if (u.Contains("docs.google.com/drawings")) return "google-drawings.png";
+            if (u.Contains("keep.google.com")) return "google-keep.png";
+            if (u.Contains("tasks.google.com")) return "google-tasks.png";
+            if (u.Contains("meet.google.com")) return "google-meet.png";
+            if (u.Contains("gemini.google.com")) return "google-gemini.png";
+            if (u.Contains("notebooklm.google.com")) return "gemini-notebook.png";
+            if (u.Contains("aistudio.google.com")) return "google-ai-studio.png";
+            if (u.Contains("music.youtube.com")) return "youtube-music.png";
+            if (u.Contains("youtube.com")) return "youtube.png";
+            if (u.Contains("photos.google.com")) return "google-photos.png";
+            if (u.Contains("google.com/maps")) return "google-maps.png";
+            if (u.Contains("contacts.google.com")) return "google-contacts.png";
+            if (u.Contains("myaccount.google.com")) return "google-account.png";
+            if (u.Contains("console.cloud.google.com")) return "google-cloud-console.png";
+            if (u.Contains("translate.google.com")) return "google-translate.png";
+            if (u.Contains("scholar.google.com")) return "google-scholar.png";
+            if (u.Contains("news.google.com")) return "google-news.png";
+            return "google-apps-for-work.png";
+        }
+
+        public async Task OpenAppInTabAsync(string title, string url, string iconFile, bool switchToTab)
+        {
             var tab = new BrowserTabEntry
             {
                 Title = title,
                 Url = url,
-                Badge = badge,
-                AccentHex = accentHex
+                IconFile = ResolveIconForUrl(url, iconFile)
             };
+
+            var bgColor = Md3Theme.IsDark
+                ? System.Drawing.Color.FromArgb(255, 19, 19, 20)
+                : System.Drawing.Color.FromArgb(255, 248, 250, 253);
 
             var webView = new WebView2
             {
-                DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 23, 23, 23),
+                DefaultBackgroundColor = bgColor,
                 Visibility = Visibility.Collapsed
+            };
+            webView.PreviewKeyDown += (s, e) =>
+            {
+                if (e.KeyboardDevice.Modifiers == ModifierKeys.Control)
+                {
+                    if (e.Key == Key.T) { e.Handled = true; ShowLauncherDashboard(); }
+                    else if (e.Key == Key.W && _activeTab != null) { e.Handled = true; CloseTab(_activeTab); }
+                    else if (e.Key == Key.K) { e.Handled = true; ToggleCommandPalette(); }
+                    else if (e.Key == Key.L) { e.Handled = true; _omniboxInput.Focus(); }
+                    else if (e.Key == Key.B) { e.Handled = true; ToggleSidebarCollapse(); }
+                }
             };
             tab.WebView = webView;
             _contentHostGrid.Children.Add(webView);
@@ -1537,7 +1597,6 @@ namespace GSuiteContainer
             }
 
             await InitializeTabWebViewAsync(tab, url);
-            UpdateMemoryStatus();
         }
 
         private async Task InitializeTabWebViewAsync(BrowserTabEntry tab, string targetUrl)
@@ -1548,38 +1607,20 @@ namespace GSuiteContainer
             await tab.WebView.EnsureCoreWebView2Async(env);
 
             var core = tab.WebView.CoreWebView2;
-            core.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Dark;
+            core.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Auto;
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = true;
             core.Settings.AreDevToolsEnabled = true;
 
-            // Inject DocumentStart Trusted-Types-Safe Keyboard, Account & YouTube 4-Layer Ad-Pruner
+            // REQ-05: Only Keyboard + Account detection injected; 4-layer YouTube ad-pruner & network hooks removed
             await core.AddScriptToExecuteOnDocumentCreatedAsync(InjectedScripts.DocumentStartInitScript);
 
-            // Register Network-Layer Ad & Tracker Filter
-            foreach (var pattern in InjectedScripts.BlockedUrlPatterns)
-            {
-                core.AddWebResourceRequestedFilter(pattern, CoreWebView2WebResourceContext.All);
-            }
-            core.WebResourceRequested += (s, e) =>
-            {
-                if (_config.AdBlockEnabled)
-                {
-                    e.Response = core.Environment.CreateWebResourceResponse(
-                        Stream.Null, 204, "No Content", "Content-Type: text/plain");
-                }
-            };
-
-            // Handle NewWindowRequested (route Google links into container tabs; external links on Shift)
+            // REQ-06: Prevent NewWindowRequested from spawning external Microsoft Edge windows
             core.NewWindowRequested += async (s, e) =>
             {
                 e.Handled = true;
-                if (e.Uri.Contains("#gab-ext"))
-                {
-                    Process.Start(new ProcessStartInfo(e.Uri.Replace("#gab-ext", "")) { UseShellExecute = true });
-                    return;
-                }
-                await OpenAppInTabAsync("Tab", e.Uri, tab.Badge, tab.AccentHex, switchToTab: true);
+                string cleanUri = e.Uri.Replace("#gab-ext", "");
+                await OpenAppInTabAsync("Workspace Tab", cleanUri, ResolveIconForUrl(cleanUri, ""), switchToTab: true);
             };
 
             core.DocumentTitleChanged += (s, e) =>
@@ -1587,7 +1628,7 @@ namespace GSuiteContainer
                 tab.Title = string.IsNullOrWhiteSpace(core.DocumentTitle) ? tab.Title : core.DocumentTitle;
                 if (tab.TabTitleText != null)
                 {
-                    tab.TabTitleText.Text = Truncate(tab.Title, 22);
+                    tab.TabTitleText.Text = tab.Title;
                 }
             };
 
@@ -1596,7 +1637,8 @@ namespace GSuiteContainer
                 if (core.Source != "about:blank")
                 {
                     tab.Url = core.Source;
-                    if (_activeTab == tab) _omniboxInput.Text = tab.Url;
+                    if (_activeTab == tab && _homeDashboardOverlay.Visibility != Visibility.Visible)
+                        _omniboxInput.Text = tab.Url;
                 }
             };
 
@@ -1605,15 +1647,12 @@ namespace GSuiteContainer
                 string msg = e.TryGetWebMessageAsString();
                 if (string.IsNullOrEmpty(msg)) return;
                 if (msg == "cmd:palette") ToggleCommandPalette();
+                else if (msg == "cmd:hub") ShowLauncherDashboard();
                 else if (msg.StartsWith("account:"))
                 {
                     string email = msg.Substring("account:".Length);
                     ws.DetectedAccount = email;
-                    _accountBadgeText.Text = $"{ws.Name}: {email}";
-                }
-                else if (msg.StartsWith("notify:"))
-                {
-                    ShowToast(msg.Substring("notify:".Length));
+                    UpdateProfilesDropdownButton();
                 }
             };
 
@@ -1622,80 +1661,97 @@ namespace GSuiteContainer
 
         private void RenderTabStrip()
         {
+            if (_tabStripPanel == null) return;
             _tabStripPanel.Children.Clear();
 
-            // Apps Launcher Home Chip
+            bool hubVisible = _homeDashboardOverlay?.Visibility == Visibility.Visible;
+
+            // Hub Chip (Fixed First Element in FlexTabPanel)
             var homeChip = new Button
             {
-                Content = "⊞ Hub",
-                Background = _homeDashboardOverlay.Visibility == Visibility.Visible ? BrushFromHex("#283142") : BgCard,
-                Foreground = AccentBlue,
-                BorderBrush = BorderSubtle,
+                Background = hubVisible ? Md3Theme.PrimaryContainer : Md3Theme.SurfaceContainer,
+                Foreground = hubVisible ? Md3Theme.OnPrimaryContainer : Md3Theme.TextPrimary,
+                BorderBrush = hubVisible ? Md3Theme.Primary : Md3Theme.Outline,
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(10, 4, 10, 4),
-                Margin = new Thickness(0, 0, 6, 0),
+                Margin = new Thickness(0, 0, 5, 0),
+                Cursor = Cursors.Hand,
+                ToolTip = "Open Google Workspace Hub (Ctrl+T)"
+            };
+            var hubContent = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            hubContent.Children.Add(CreateCrispIconImage("google-apps-for-work.png", 15, new Thickness(0, 0, 6, 0)));
+            hubContent.Children.Add(new TextBlock
+            {
+                Text = "Hub",
                 FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
-                Cursor = Cursors.Hand
-            };
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            homeChip.Content = hubContent;
             homeChip.Click += (s, e) => ShowLauncherDashboard();
             _tabStripPanel.Children.Add(homeChip);
 
+            // Flex Browser Tabs (Shrink proportionally via FlexTabPanel, zero 3-letter text badges)
             foreach (var tab in _tabs)
             {
-                bool isActive = (_activeTab == tab && _homeDashboardOverlay.Visibility != Visibility.Visible);
+                bool isActive = (_activeTab == tab && !hubVisible);
                 var chipBorder = new Border
                 {
-                    Background = isActive ? BrushFromHex("#292D36") : BgCard,
-                    BorderBrush = isActive ? BrushFromHex(tab.AccentHex) : BorderSubtle,
+                    Background = isActive ? Md3Theme.PrimaryContainer : Md3Theme.SurfaceContainer,
+                    BorderBrush = isActive ? Md3Theme.Primary : Md3Theme.Outline,
                     BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(6),
-                    Padding = new Thickness(8, 3, 6, 3),
-                    Margin = new Thickness(0, 0, 5, 0),
-                    Cursor = Cursors.Hand
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(8, 4, 6, 4),
+                    Margin = new Thickness(0, 0, 4, 0),
+                    Cursor = Cursors.Hand,
+                    ToolTip = tab.Title
                 };
-                var stack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
 
-                stack.Children.Add(new TextBlock
-                {
-                    Text = tab.Badge,
-                    Foreground = BrushFromHex(tab.AccentHex),
-                    FontWeight = FontWeights.Bold,
-                    FontSize = 11,
-                    Margin = new Thickness(0, 0, 6, 0),
-                    VerticalAlignment = VerticalAlignment.Center
-                });
+                var chipGrid = new Grid();
+                chipGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Official 16x16 Icon
+                chipGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Flex Title
+                chipGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // State Badge
+                chipGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Close Button
+
+                var iconImg = CreateCrispIconImage(tab.IconFile, 15, new Thickness(0, 0, 6, 0));
+                Grid.SetColumn(iconImg, 0);
+                chipGrid.Children.Add(iconImg);
 
                 var titleBlock = new TextBlock
                 {
-                    Text = Truncate(tab.Title, 22),
-                    Foreground = isActive ? TextPrimary : TextSecondary,
+                    Text = tab.Title,
+                    Foreground = isActive ? Md3Theme.OnPrimaryContainer : Md3Theme.TextPrimary,
+                    FontWeight = isActive ? FontWeights.Medium : FontWeights.Normal,
                     FontSize = 12,
-                    VerticalAlignment = VerticalAlignment.Center
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
                 };
                 tab.TabTitleText = titleBlock;
-                stack.Children.Add(titleBlock);
+                Grid.SetColumn(titleBlock, 1);
+                chipGrid.Children.Add(titleBlock);
 
                 var stateBadge = new TextBlock
                 {
                     Text = tab.IsHibernated ? " [zzz]" : "",
-                    Foreground = AccentGold,
-                    FontSize = 10.5,
+                    Foreground = Md3Theme.TextSecondary,
+                    FontSize = 10,
                     VerticalAlignment = VerticalAlignment.Center
                 };
                 tab.TabStateBadge = stateBadge;
-                stack.Children.Add(stateBadge);
+                Grid.SetColumn(stateBadge, 2);
+                chipGrid.Children.Add(stateBadge);
 
                 var closeBtn = new Button
                 {
                     Content = "×",
                     Background = Brushes.Transparent,
-                    Foreground = TextSecondary,
+                    Foreground = isActive ? Md3Theme.OnPrimaryContainer : Md3Theme.TextSecondary,
                     BorderThickness = new Thickness(0),
-                    Margin = new Thickness(6, 0, 0, 0),
+                    Margin = new Thickness(4, 0, 0, 0),
                     Padding = new Thickness(3, 0, 3, 0),
                     FontSize = 13,
-                    Cursor = Cursors.Hand
+                    Cursor = Cursors.Hand,
+                    ToolTip = "Close Tab (Ctrl+W)"
                 };
                 var capturedTab = tab;
                 closeBtn.Click += (s, e) =>
@@ -1703,15 +1759,18 @@ namespace GSuiteContainer
                     e.Handled = true;
                     CloseTab(capturedTab);
                 };
-                stack.Children.Add(closeBtn);
+                Grid.SetColumn(closeBtn, 3);
+                chipGrid.Children.Add(closeBtn);
 
-                chipBorder.Child = stack;
+                chipBorder.Child = chipGrid;
                 chipBorder.MouseLeftButtonUp += async (s, e) => await WakeAndActivateTabAsync(capturedTab);
                 tab.TabChipBorder = chipBorder;
                 _tabStripPanel.Children.Add(chipBorder);
             }
 
-            var newTabBtn = CreateToolbarButton("+", "Open Launcher Dashboard (Ctrl+T)", AccentBlue);
+            // Fixed Last Element (+) in FlexTabPanel
+            var newTabBtn = CreateToolbarButton("+", "Open Google Workspace Hub (Ctrl+T)");
+            newTabBtn.FontWeight = FontWeights.Bold;
             newTabBtn.Click += (s, e) => ShowLauncherDashboard();
             _tabStripPanel.Children.Add(newTabBtn);
         }
@@ -1732,6 +1791,7 @@ namespace GSuiteContainer
         {
             _activeTab = tab;
             _homeDashboardOverlay.Visibility = Visibility.Collapsed;
+            _commandPaletteOverlay.Visibility = Visibility.Collapsed;
             foreach (var t in _tabs)
             {
                 if (t.WebView != null)
@@ -1741,12 +1801,31 @@ namespace GSuiteContainer
             RenderTabStrip();
         }
 
+        // REQ-04: Toggle / Show Launcher Dashboard while hiding WebView2 HWNDs (fixes WPF Airspace issue)
+        private void ToggleLauncherDashboard()
+        {
+            if (_homeDashboardOverlay.Visibility == Visibility.Visible && _activeTab != null)
+            {
+                ActivateTab(_activeTab);
+            }
+            else
+            {
+                ShowLauncherDashboard();
+            }
+        }
+
         private void ShowLauncherDashboard()
         {
+            // Hide active WebView2 HWNDs so the WPF Container Hub overlay is never occluded
+            foreach (var t in _tabs)
+            {
+                if (t.WebView != null)
+                    t.WebView.Visibility = Visibility.Collapsed;
+            }
             _homeDashboardOverlay.Visibility = Visibility.Visible;
             RenderTabStrip();
-            RenderCategoryPills();
             RenderDashboardCards();
+            _homeFilterBox?.Focus();
         }
 
         private void CloseTab(BrowserTabEntry tab)
@@ -1773,7 +1852,6 @@ namespace GSuiteContainer
             {
                 RenderTabStrip();
             }
-            UpdateMemoryStatus();
         }
 
         private void HibernateBackgroundTabs()
@@ -1790,9 +1868,8 @@ namespace GSuiteContainer
                 }
             }
             ShowToast(count > 0
-                ? $"Hibernated {count} background tab(s) to reclaim WebView2 memory."
-                : "No active background tabs to hibernate.");
-            UpdateMemoryStatus();
+                ? $"Hibernated {count} background tab(s)."
+                : "No background tabs to hibernate.");
         }
 
         // =====================================================================
@@ -1802,8 +1879,8 @@ namespace GSuiteContainer
         {
             var border = new Border
             {
-                Background = BgCanvas,
-                BorderBrush = BorderSubtle,
+                Background = Md3Theme.Surface,
+                BorderBrush = Md3Theme.Outline,
                 BorderThickness = new Thickness(1, 0, 0, 0),
                 Visibility = Visibility.Collapsed
             };
@@ -1811,15 +1888,15 @@ namespace GSuiteContainer
             grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
             grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            var header = new Grid { Background = BgElevated };
+            var header = new Grid { Background = Md3Theme.SurfaceContainer };
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             header.Children.Add(new TextBlock
             {
-                Text = "◫ Split Pane",
-                Foreground = AccentGreen,
+                Text = "Split Pane",
+                Foreground = Md3Theme.Primary,
                 FontSize = 11.5,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -1828,8 +1905,8 @@ namespace GSuiteContainer
 
             _splitUrlBox = new TextBox
             {
-                Background = BgCard,
-                Foreground = TextPrimary,
+                Background = Md3Theme.SurfaceVariant,
+                Foreground = Md3Theme.TextPrimary,
                 BorderThickness = new Thickness(0),
                 VerticalContentAlignment = VerticalAlignment.Center,
                 FontSize = 11.5,
@@ -1843,7 +1920,7 @@ namespace GSuiteContainer
             Grid.SetColumn(_splitUrlBox, 1);
             header.Children.Add(_splitUrlBox);
 
-            var closeSplitBtn = CreateToolbarButton("× Close Split", "Close right split pane", TextSecondary);
+            var closeSplitBtn = CreateToolbarButton("×", "Close right split pane");
             closeSplitBtn.Click += (s, e) => ToggleSplitView();
             Grid.SetColumn(closeSplitBtn, 2);
             header.Children.Add(closeSplitBtn);
@@ -1851,7 +1928,7 @@ namespace GSuiteContainer
             Grid.SetRow(header, 0);
             grid.Children.Add(header);
 
-            _splitWebView = new WebView2 { DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 23, 23, 23) };
+            _splitWebView = new WebView2();
             Grid.SetRow(_splitWebView, 1);
             grid.Children.Add(_splitWebView);
 
@@ -1896,7 +1973,7 @@ namespace GSuiteContainer
             {
                 var env = await GetOrCreateWorkspaceEnvironmentAsync(GetActiveWorkspace().Id);
                 await _splitWebView.EnsureCoreWebView2Async(env);
-                _splitWebView.CoreWebView2.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Dark;
+                _splitWebView.CoreWebView2.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Auto;
                 _splitWebView.CoreWebView2.Navigate(NormalizeUrlOrSearch(url));
             }
         }
@@ -1906,8 +1983,8 @@ namespace GSuiteContainer
             var drawer = new Border
             {
                 Width = 420,
-                Background = BgElevated,
-                BorderBrush = BorderSubtle,
+                Background = Md3Theme.SurfaceContainer,
+                BorderBrush = Md3Theme.Outline,
                 BorderThickness = new Thickness(1, 0, 0, 0),
                 Visibility = _config.AiDrawerOpen ? Visibility.Visible : Visibility.Collapsed
             };
@@ -1923,18 +2000,10 @@ namespace GSuiteContainer
             };
             foreach (var p in CatalogRegistry.GetAiProviders())
             {
-                var btn = new Button
-                {
-                    Content = p.Name,
-                    Background = BgCard,
-                    Foreground = BrushFromHex(p.Hex),
-                    BorderBrush = BorderSubtle,
-                    BorderThickness = new Thickness(1),
-                    Padding = new Thickness(7, 3, 7, 3),
-                    Margin = new Thickness(0, 0, 4, 0),
-                    FontSize = 11,
-                    Cursor = Cursors.Hand
-                };
+                var btn = CreateToolbarButton(p.Name, $"Switch AI Drawer to {p.Name}");
+                btn.Padding = new Thickness(7, 3, 7, 3);
+                btn.Margin = new Thickness(0, 0, 4, 0);
+                btn.FontSize = 11;
                 string targetUrl = p.Url;
                 btn.Click += async (s, e) => await NavigateAiDrawerAsync(targetUrl);
                 _aiProviderTabsPanel.Children.Add(btn);
@@ -1942,8 +2011,8 @@ namespace GSuiteContainer
             Grid.SetRow(_aiProviderTabsPanel, 0);
             grid.Children.Add(_aiProviderTabsPanel);
 
-            _aiWebViewHost = new Grid { Background = BgCanvas };
-            _aiWebView = new WebView2 { DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 23, 23, 23) };
+            _aiWebViewHost = new Grid { Background = Md3Theme.Surface };
+            _aiWebView = new WebView2();
             _aiWebViewHost.Children.Add(_aiWebView);
             Grid.SetRow(_aiWebViewHost, 1);
             grid.Children.Add(_aiWebViewHost);
@@ -1968,7 +2037,7 @@ namespace GSuiteContainer
             if (_aiWebView == null) return;
             var env = await GetOrCreateWorkspaceEnvironmentAsync(GetActiveWorkspace().Id);
             await _aiWebView.EnsureCoreWebView2Async(env);
-            _aiWebView.CoreWebView2.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Dark;
+            _aiWebView.CoreWebView2.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Auto;
             if (_aiWebView.CoreWebView2.Source != url)
             {
                 _aiWebView.CoreWebView2.Navigate(url);
@@ -1982,23 +2051,25 @@ namespace GSuiteContainer
 
             var miniWin = new Window
             {
-                Title = $"📌 Mini-Player | {title}",
+                Title = $"Mini-Player | {title}",
                 Width = 480,
                 Height = 310,
                 Topmost = true,
                 WindowStartupLocation = WindowStartupLocation.Manual,
                 Left = SystemParameters.WorkArea.Width - 500,
                 Top = SystemParameters.WorkArea.Height - 340,
-                Background = BgCanvas,
-                Foreground = TextPrimary,
-                FontFamily = UiFont
+                Background = Md3Theme.Surface,
+                Foreground = Md3Theme.TextPrimary,
+                FontFamily = UiFont,
+                Icon = Icon
             };
-            var wv = new WebView2 { DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 23, 23, 23) };
+            var wv = new WebView2();
             miniWin.Content = wv;
             miniWin.Show();
 
             var env = await GetOrCreateWorkspaceEnvironmentAsync(GetActiveWorkspace().Id);
             await wv.EnsureCoreWebView2Async(env);
+            wv.CoreWebView2.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Auto;
             await wv.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(InjectedScripts.DocumentStartInitScript);
             wv.CoreWebView2.Navigate(url);
         }
@@ -2007,21 +2078,32 @@ namespace GSuiteContainer
         {
             var popWin = new Window
             {
-                Title = $"{title} | G-Suite Container",
+                Title = $"{title} | Google Workspace",
                 Width = 1180,
                 Height = 800,
                 WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                Background = BgCanvas,
-                Foreground = TextPrimary
+                Background = Md3Theme.Surface,
+                Foreground = Md3Theme.TextPrimary,
+                Icon = Icon
             };
-            var wv = new WebView2 { DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 23, 23, 23) };
+            var wv = new WebView2();
             popWin.Content = wv;
             popWin.Show();
 
             var env = await GetOrCreateWorkspaceEnvironmentAsync(GetActiveWorkspace().Id);
             await wv.EnsureCoreWebView2Async(env);
+            wv.CoreWebView2.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Auto;
             await wv.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(InjectedScripts.DocumentStartInitScript);
             wv.CoreWebView2.Navigate(url);
+        }
+
+        // REQ-06: In-Container Browser Action (Never spawns external Microsoft Edge windows)
+        private async Task OpenInContainerBrowserTabAsync()
+        {
+            string url = (_activeTab != null && !string.IsNullOrWhiteSpace(_activeTab.Url) && _activeTab.Url != "about:blank")
+                ? _activeTab.Url
+                : "https://www.google.com/";
+            await OpenAppInTabAsync("Google Web", url, "google-apps-for-work.png", switchToTab: true);
         }
 
         // =====================================================================
@@ -2031,7 +2113,7 @@ namespace GSuiteContainer
         {
             var overlay = new Grid
             {
-                Background = new SolidColorBrush(Color.FromArgb(185, 12, 13, 16)),
+                Background = new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)),
                 Visibility = Visibility.Collapsed
             };
             overlay.MouseLeftButtonDown += (s, e) =>
@@ -2039,28 +2121,28 @@ namespace GSuiteContainer
                 if (e.OriginalSource == overlay) ToggleCommandPalette();
             };
 
-            var modal = new Border
+            _commandPaletteModal = new Border
             {
-                Width = 640,
-                MaxHeight = 500,
-                Background = BgElevated,
-                BorderBrush = AccentBlue,
+                Width = 620,
+                MaxHeight = 480,
+                Background = Md3Theme.SurfaceContainer,
+                BorderBrush = Md3Theme.Primary,
                 BorderThickness = new Thickness(1.5),
-                CornerRadius = new CornerRadius(12),
+                CornerRadius = new CornerRadius(14),
                 Padding = new Thickness(16),
                 VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 70, 0, 0),
-                Effect = new DropShadowEffect { BlurRadius = 28, ShadowDepth = 8, Opacity = 0.65 }
+                Margin = new Thickness(0, 64, 0, 0),
+                Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 6, Opacity = 0.35 }
             };
 
             var stack = new StackPanel();
             _paletteSearchBox = new TextBox
             {
                 Height = 38,
-                Background = BgCard,
-                Foreground = TextPrimary,
-                CaretBrush = AccentBlue,
-                BorderBrush = BorderSubtle,
+                Background = Md3Theme.SurfaceVariant,
+                Foreground = Md3Theme.TextPrimary,
+                CaretBrush = Md3Theme.Primary,
+                BorderBrush = Md3Theme.Outline,
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(12, 7, 12, 7),
                 FontSize = 14
@@ -2071,7 +2153,7 @@ namespace GSuiteContainer
 
             var scroll = new ScrollViewer
             {
-                MaxHeight = 400,
+                MaxHeight = 380,
                 Margin = new Thickness(0, 10, 0, 0),
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
@@ -2079,8 +2161,8 @@ namespace GSuiteContainer
             scroll.Content = _paletteResultsPanel;
             stack.Children.Add(scroll);
 
-            modal.Child = stack;
-            overlay.Children.Add(modal);
+            _commandPaletteModal.Child = stack;
+            overlay.Children.Add(_commandPaletteModal);
             return overlay;
         }
 
@@ -2089,9 +2171,18 @@ namespace GSuiteContainer
             if (_commandPaletteOverlay.Visibility == Visibility.Visible)
             {
                 _commandPaletteOverlay.Visibility = Visibility.Collapsed;
+                if (_homeDashboardOverlay.Visibility != Visibility.Visible && _activeTab?.WebView != null)
+                {
+                    _activeTab.WebView.Visibility = Visibility.Visible;
+                }
             }
             else
             {
+                // Temporarily collapse active WebView2 so WPF Command Palette modal renders on top
+                foreach (var t in _tabs)
+                {
+                    if (t.WebView != null) t.WebView.Visibility = Visibility.Collapsed;
+                }
                 _commandPaletteOverlay.Visibility = Visibility.Visible;
                 _paletteSearchBox.Text = "";
                 RenderPaletteResults();
@@ -2105,31 +2196,42 @@ namespace GSuiteContainer
             string q = (_paletteSearchBox.Text ?? "").Trim();
 
             var matches = _allApps
-                .Where(a => string.IsNullOrEmpty(q) || FuzzyMatch(a.Name, q) || FuzzyMatch(a.Category, q))
-                .Take(12)
+                .Where(a => string.IsNullOrEmpty(q) || FuzzyMatch(a.Name, q))
+                .Take(10)
                 .ToList();
 
             foreach (var app in matches)
             {
-                var row = new Button
+                var rowBtn = new Button
                 {
                     HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    Background = BgCard,
-                    Foreground = TextPrimary,
-                    BorderBrush = BorderSubtle,
+                    Background = Md3Theme.Surface,
+                    Foreground = Md3Theme.TextPrimary,
+                    BorderBrush = Md3Theme.Outline,
                     BorderThickness = new Thickness(1),
                     Padding = new Thickness(12, 8, 12, 8),
                     Margin = new Thickness(0, 0, 0, 5),
-                    Cursor = Cursors.Hand,
-                    Content = $"[{app.Badge}]  {app.Name}   |   {app.Category} ({app.Url})"
+                    Cursor = Cursors.Hand
                 };
+                var rowStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                rowStack.Children.Add(CreateCrispIconImage(app.IconFile, 20, new Thickness(0, 0, 10, 0)));
+                rowStack.Children.Add(new TextBlock
+                {
+                    Text = app.Name,
+                    FontWeight = FontWeights.Medium,
+                    FontSize = 13,
+                    Foreground = Md3Theme.TextPrimary,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                rowBtn.Content = rowStack;
+
                 var captured = app;
-                row.Click += async (s, e) =>
+                rowBtn.Click += async (s, e) =>
                 {
                     _commandPaletteOverlay.Visibility = Visibility.Collapsed;
-                    await OpenAppInTabAsync(captured.Name, captured.Url, captured.Badge, captured.AccentHex, switchToTab: true);
+                    await OpenAppInTabAsync(captured.Name, captured.Url, captured.IconFile, switchToTab: true);
                 };
-                _paletteResultsPanel.Children.Add(row);
+                _paletteResultsPanel.Children.Add(rowBtn);
             }
 
             if (!string.IsNullOrEmpty(q))
@@ -2139,21 +2241,21 @@ namespace GSuiteContainer
                     var searchRow = new Button
                     {
                         HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                        Background = BrushFromHex("#1E2430"),
-                        Foreground = BrushFromHex(se.AccentHex),
+                        Background = Md3Theme.PrimaryContainer,
+                        Foreground = Md3Theme.OnPrimaryContainer,
                         BorderThickness = new Thickness(0),
                         Padding = new Thickness(12, 7, 12, 7),
                         Margin = new Thickness(0, 0, 0, 4),
                         Cursor = Cursors.Hand,
-                        Content = $"🔎 Search {se.Name} for \"{q}\""
+                        Content = $"Search {se.Name} for \"{q}\""
                     };
                     string url = string.Format(se.UrlTemplate, Uri.EscapeDataString(q));
                     string name = se.Name;
-                    string hex = se.AccentHex;
+                    string icon = se.IconFile;
                     searchRow.Click += async (s, e) =>
                     {
                         _commandPaletteOverlay.Visibility = Visibility.Collapsed;
-                        await OpenAppInTabAsync($"{name}: {q}", url, "🔎", hex, switchToTab: true);
+                        await OpenAppInTabAsync($"{name}: {q}", url, icon, switchToTab: true);
                     };
                     _paletteResultsPanel.Children.Add(searchRow);
                 }
@@ -2164,7 +2266,7 @@ namespace GSuiteContainer
         {
             if (e.Key == Key.Escape)
             {
-                _commandPaletteOverlay.Visibility = Visibility.Collapsed;
+                ToggleCommandPalette();
                 e.Handled = true;
             }
             else if (e.Key == Key.Enter)
@@ -2175,7 +2277,7 @@ namespace GSuiteContainer
                 {
                     var topApp = _allApps.FirstOrDefault(a => FuzzyMatch(a.Name, q));
                     if (topApp != null)
-                        await OpenAppInTabAsync(topApp.Name, topApp.Url, topApp.Badge, topApp.AccentHex, switchToTab: true);
+                        await OpenAppInTabAsync(topApp.Name, topApp.Url, topApp.IconFile, switchToTab: true);
                     else
                         await ExecuteOmniboxQueryAsync(q);
                 }
@@ -2189,14 +2291,14 @@ namespace GSuiteContainer
         {
             var overlay = new Grid
             {
-                Background = BgCanvas,
+                Background = Md3Theme.Surface,
                 Visibility = Visibility.Collapsed
             };
-            var card = new Border
+            _pinLockCard = new Border
             {
                 Width = 380,
-                Background = BgElevated,
-                BorderBrush = AccentGold,
+                Background = Md3Theme.SurfaceContainer,
+                BorderBrush = Md3Theme.Primary,
                 BorderThickness = new Thickness(1.5),
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(24),
@@ -2206,10 +2308,10 @@ namespace GSuiteContainer
             var stack = new StackPanel();
             _pinPromptLabel = new TextBlock
             {
-                Text = "Workspace Locked | Enter PIN",
-                Foreground = TextPrimary,
+                Text = "Profile Locked | Enter PIN",
+                Foreground = Md3Theme.TextPrimary,
                 FontSize = 16,
-                FontWeight = FontWeights.Bold,
+                FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 0, 0, 12)
             };
             stack.Children.Add(_pinPromptLabel);
@@ -2217,37 +2319,41 @@ namespace GSuiteContainer
             _pinInputBox = new PasswordBox
             {
                 Height = 36,
-                Background = BgCard,
-                Foreground = TextPrimary,
-                BorderBrush = BorderSubtle,
+                Background = Md3Theme.SurfaceVariant,
+                Foreground = Md3Theme.TextPrimary,
+                BorderBrush = Md3Theme.Outline,
                 Padding = new Thickness(10, 6, 10, 6),
                 FontSize = 14
             };
             _pinInputBox.KeyDown += (s, e) => { if (e.Key == Key.Enter) VerifyOrSetPin(); };
             stack.Children.Add(_pinInputBox);
 
-            var unlockBtn = CreateToolbarButton("Unlock / Confirm PIN", "Verify SHA-256 PIN", AccentGold);
+            var unlockBtn = CreateToolbarButton("Unlock / Confirm PIN", "Verify SHA-256 PIN");
             unlockBtn.Height = 36;
             unlockBtn.Margin = new Thickness(0, 12, 0, 0);
             unlockBtn.Click += (s, e) => VerifyOrSetPin();
             stack.Children.Add(unlockBtn);
 
-            card.Child = stack;
-            overlay.Children.Add(card);
+            _pinLockCard.Child = stack;
+            overlay.Children.Add(_pinLockCard);
             return overlay;
         }
 
         private void PromptOrLockWorkspace()
         {
             var ws = GetActiveWorkspace();
+            foreach (var t in _tabs)
+            {
+                if (t.WebView != null) t.WebView.Visibility = Visibility.Collapsed;
+            }
             _pinInputBox.Password = "";
             if (string.IsNullOrEmpty(ws.PinSha256))
             {
-                _pinPromptLabel.Text = $"Set New PIN for '{ws.Name}' Workspace:";
+                _pinPromptLabel.Text = $"Set New PIN for '{ws.Name}' Profile:";
             }
             else
             {
-                _pinPromptLabel.Text = $"🔒 '{ws.Name}' Locked | Enter PIN:";
+                _pinPromptLabel.Text = $"'{ws.Name}' Locked | Enter PIN:";
                 _workspaceLocked = true;
             }
             _pinLockOverlay.Visibility = Visibility.Visible;
@@ -2266,17 +2372,21 @@ namespace GSuiteContainer
                 ws.PinSha256 = hash;
                 SaveConfig();
                 _pinLockOverlay.Visibility = Visibility.Collapsed;
-                ShowToast($"PIN protection enabled for workspace '{ws.Name}'.");
+                if (_homeDashboardOverlay.Visibility != Visibility.Visible && _activeTab != null)
+                    ActivateTab(_activeTab);
+                ShowToast($"PIN protection enabled for '{ws.Name}'.");
             }
             else if (ws.PinSha256 == hash)
             {
                 _workspaceLocked = false;
                 _pinLockOverlay.Visibility = Visibility.Collapsed;
-                ShowToast($"Workspace '{ws.Name}' unlocked.");
+                if (_homeDashboardOverlay.Visibility != Visibility.Visible && _activeTab != null)
+                    ActivateTab(_activeTab);
+                ShowToast($"Profile '{ws.Name}' unlocked.");
             }
             else
             {
-                _pinPromptLabel.Text = "❌ Incorrect PIN | Try Again:";
+                _pinPromptLabel.Text = "Incorrect PIN | Try Again:";
                 _pinInputBox.Password = "";
             }
         }
@@ -2299,11 +2409,7 @@ namespace GSuiteContainer
 
             _config.ActiveWorkspaceId = workspaceId;
             var ws = GetActiveWorkspace();
-            _accountBadgeText.Text = string.IsNullOrEmpty(ws.DetectedAccount)
-                ? $"Isolated: {ws.Name}"
-                : $"{ws.Name}: {ws.DetectedAccount}";
-
-            RenderWorkspacePills();
+            UpdateProfilesDropdownButton();
             ShowLauncherDashboard();
 
             if (!string.IsNullOrEmpty(ws.PinSha256))
@@ -2313,7 +2419,7 @@ namespace GSuiteContainer
 
             foreach (var savedUrl in ws.OpenTabUrls.Take(5))
             {
-                await OpenAppInTabAsync("Restored Tab", savedUrl, "G", ws.AccentHex, switchToTab: false);
+                await OpenAppInTabAsync("Restored Tab", savedUrl, ResolveIconForUrl(savedUrl, ""), switchToTab: false);
             }
         }
 
@@ -2325,24 +2431,24 @@ namespace GSuiteContainer
             var menu = new ContextMenu
             {
                 PlacementTarget = _searchEnginePillBtn,
-                Background = BgElevated,
-                Foreground = TextPrimary,
-                BorderBrush = BorderSubtle
+                Background = Md3Theme.SurfaceContainer,
+                Foreground = Md3Theme.TextPrimary,
+                BorderBrush = Md3Theme.Outline
             };
             foreach (var se in _searchEngines)
             {
                 var item = new MenuItem
                 {
                     Header = $"{se.Name}   (prefix: '{se.Prefix} ')",
-                    Foreground = BrushFromHex(se.AccentHex)
+                    Foreground = Md3Theme.TextPrimary,
+                    Icon = CreateCrispIconImage(se.IconFile, 16)
                 };
                 var captured = se;
                 item.Click += (s, args) =>
                 {
                     _activeSearchEngine = captured;
                     _config.DefaultSearchEngineId = captured.Id;
-                    _searchEnginePillBtn.Content = $"Search: {captured.Name} ▾";
-                    _searchEnginePillBtn.Foreground = BrushFromHex(captured.AccentHex);
+                    _searchEnginePillBtn.Content = $"{captured.Name} ▾";
                 };
                 menu.Items.Add(item);
             }
@@ -2363,7 +2469,6 @@ namespace GSuiteContainer
 
         private async Task ExecuteOmniboxQueryAsync(string rawInput)
         {
-            // Check prefix shortcuts: e.g., "yt rust tutorial", "m invoice", "d budget"
             var parts = rawInput.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 2)
             {
@@ -2372,16 +2477,16 @@ namespace GSuiteContainer
                 if (prefixEngine != null)
                 {
                     string qUrl = string.Format(prefixEngine.UrlTemplate, Uri.EscapeDataString(parts[1]));
-                    await NavigateOrOpenTabAsync($"{prefixEngine.Name}: {parts[1]}", qUrl, prefixEngine.AccentHex);
+                    await NavigateOrOpenTabAsync($"{prefixEngine.Name}: {parts[1]}", qUrl, prefixEngine.IconFile);
                     return;
                 }
             }
 
             string targetUrl = NormalizeUrlOrSearch(rawInput);
-            await NavigateOrOpenTabAsync("Search", targetUrl, _activeSearchEngine.AccentHex);
+            await NavigateOrOpenTabAsync("Search", targetUrl, _activeSearchEngine.IconFile);
         }
 
-        private async Task NavigateOrOpenTabAsync(string title, string url, string hex)
+        private async Task NavigateOrOpenTabAsync(string title, string url, string iconFile)
         {
             if (_activeTab != null && _homeDashboardOverlay.Visibility != Visibility.Visible && _activeTab.WebView?.CoreWebView2 != null)
             {
@@ -2389,7 +2494,7 @@ namespace GSuiteContainer
             }
             else
             {
-                await OpenAppInTabAsync(title, url, "G", hex, switchToTab: true);
+                await OpenAppInTabAsync(title, url, iconFile, switchToTab: true);
             }
         }
 
@@ -2422,25 +2527,26 @@ namespace GSuiteContainer
         {
             var dlg = new Window
             {
-                Title = "Add Custom Web App (Unlimited)",
+                Title = "Add Custom Web App",
                 Width = 420,
-                Height = 260,
+                Height = 250,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
-                Background = BgElevated,
-                Foreground = TextPrimary,
-                FontFamily = UiFont
+                Background = Md3Theme.SurfaceContainer,
+                Foreground = Md3Theme.TextPrimary,
+                FontFamily = UiFont,
+                Icon = Icon
             };
             var stack = new StackPanel { Margin = new Thickness(20) };
-            stack.Children.Add(new TextBlock { Text = "App Name:", Foreground = TextSecondary, Margin = new Thickness(0, 0, 0, 4) });
-            var nameBox = new TextBox { Height = 30, Background = BgCard, Foreground = TextPrimary, BorderBrush = BorderSubtle, Padding = new Thickness(6, 4, 6, 4) };
+            stack.Children.Add(new TextBlock { Text = "App Name:", Foreground = Md3Theme.TextSecondary, Margin = new Thickness(0, 0, 0, 4) });
+            var nameBox = new TextBox { Height = 32, Background = Md3Theme.SurfaceVariant, Foreground = Md3Theme.TextPrimary, BorderBrush = Md3Theme.Outline, Padding = new Thickness(8, 5, 8, 5) };
             stack.Children.Add(nameBox);
 
-            stack.Children.Add(new TextBlock { Text = "HTTPS URL:", Foreground = TextSecondary, Margin = new Thickness(0, 12, 0, 4) });
-            var urlBox = new TextBox { Height = 30, Background = BgCard, Foreground = TextPrimary, BorderBrush = BorderSubtle, Padding = new Thickness(6, 4, 6, 4), Text = "https://" };
+            stack.Children.Add(new TextBlock { Text = "HTTPS URL:", Foreground = Md3Theme.TextSecondary, Margin = new Thickness(0, 12, 0, 4) });
+            var urlBox = new TextBox { Height = 32, Background = Md3Theme.SurfaceVariant, Foreground = Md3Theme.TextPrimary, BorderBrush = Md3Theme.Outline, Padding = new Thickness(8, 5, 8, 5), Text = "https://" };
             stack.Children.Add(urlBox);
 
-            var saveBtn = CreateToolbarButton("Save Custom App", "Add to Launcher Catalog", AccentGreen);
+            var saveBtn = CreateToolbarButton("Save Custom App", "Add to Workspace Hub");
             saveBtn.Height = 34;
             saveBtn.Margin = new Thickness(0, 18, 0, 0);
             saveBtn.Click += (s, e) =>
@@ -2449,14 +2555,13 @@ namespace GSuiteContainer
                 string u = urlBox.Text.Trim();
                 if (!string.IsNullOrEmpty(n) && !string.IsNullOrEmpty(u))
                 {
+                    string finalUrl = u.StartsWith("http") ? u : "https://" + u;
                     var custom = new GoogleAppDef
                     {
                         Id = "custom_" + Guid.NewGuid().ToString("N").Substring(0, 6),
                         Name = n,
-                        Url = u.StartsWith("http") ? u : "https://" + u,
-                        Badge = n.Substring(0, Math.Min(3, n.Length)).ToUpperInvariant(),
-                        AccentHex = "#81C995",
-                        Category = "Custom Apps",
+                        Url = finalUrl,
+                        IconFile = ResolveIconForUrl(finalUrl, "google-apps-for-work.png"),
                         IsCustom = true,
                         IsFavorite = true
                     };
@@ -2465,7 +2570,6 @@ namespace GSuiteContainer
                     SaveConfig();
                     RebuildAppCatalog();
                     RenderSidebarFavorites();
-                    RenderCategoryPills();
                     RenderDashboardCards();
                     dlg.Close();
                 }
@@ -2479,33 +2583,44 @@ namespace GSuiteContainer
         {
             var dlg = new Window
             {
-                Title = "Create Isolated Workspace Profile",
-                Width = 380,
-                Height = 200,
+                Title = "Create Isolated Profile",
+                Width = 400,
+                Height = 250,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
-                Background = BgElevated,
-                Foreground = TextPrimary,
-                FontFamily = UiFont
+                Background = Md3Theme.SurfaceContainer,
+                Foreground = Md3Theme.TextPrimary,
+                FontFamily = UiFont,
+                Icon = Icon
             };
             var stack = new StackPanel { Margin = new Thickness(20) };
-            stack.Children.Add(new TextBlock { Text = "Workspace Name (e.g., Client, Consulting, Sandbox):", Foreground = TextSecondary, Margin = new Thickness(0, 0, 0, 6) });
-            var nameBox = new TextBox { Height = 32, Background = BgCard, Foreground = TextPrimary, BorderBrush = BorderSubtle, Padding = new Thickness(8, 5, 8, 5) };
+            stack.Children.Add(new TextBlock { Text = "Profile Label (e.g., Personal, Work, Client):", Foreground = Md3Theme.TextSecondary, Margin = new Thickness(0, 0, 0, 4) });
+            var nameBox = new TextBox { Height = 32, Background = Md3Theme.SurfaceVariant, Foreground = Md3Theme.TextPrimary, BorderBrush = Md3Theme.Outline, Padding = new Thickness(8, 5, 8, 5) };
             stack.Children.Add(nameBox);
 
-            var createBtn = CreateToolbarButton("Create & Switch Profile", "Creates isolated WebView2 storage folder", AccentBlue);
+            stack.Children.Add(new TextBlock { Text = "Account Email:", Foreground = Md3Theme.TextSecondary, Margin = new Thickness(0, 12, 0, 4) });
+            var emailBox = new TextBox { Height = 32, Background = Md3Theme.SurfaceVariant, Foreground = Md3Theme.TextPrimary, BorderBrush = Md3Theme.Outline, Padding = new Thickness(8, 5, 8, 5), Text = "george.christosp@gmail.com" };
+            stack.Children.Add(emailBox);
+
+            var createBtn = CreateToolbarButton("Create & Switch Profile", "Creates isolated WebView2 profile folder");
             createBtn.Height = 34;
             createBtn.Margin = new Thickness(0, 16, 0, 0);
             createBtn.Click += async (s, e) =>
             {
                 string n = nameBox.Text.Trim();
+                string em = emailBox.Text.Trim();
                 if (!string.IsNullOrEmpty(n))
                 {
                     string id = new string(n.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
                     if (string.IsNullOrEmpty(id)) id = "ws_" + Guid.NewGuid().ToString("N").Substring(0, 5);
                     if (_config.Workspaces.All(w => w.Id != id))
                     {
-                        _config.Workspaces.Add(new WorkspaceProfile { Id = id, Name = n, AccentHex = "#C58AF9" });
+                        _config.Workspaces.Add(new WorkspaceProfile
+                        {
+                            Id = id,
+                            Name = n,
+                            DetectedAccount = string.IsNullOrEmpty(em) ? "george.christosp@gmail.com" : em
+                        });
                         SaveConfig();
                     }
                     dlg.Close();
@@ -2517,26 +2632,16 @@ namespace GSuiteContainer
             dlg.ShowDialog();
         }
 
-        private void OpenActiveUrlInSystemBrowser()
-        {
-            string url = _activeTab?.Url ?? "https://www.google.com";
-            if (!string.IsNullOrWhiteSpace(url) && url != "about:blank")
-            {
-                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-            }
-        }
-
         // =====================================================================
-        // LIFECYCLE, HOTKEYS, DWM DARK BACKDROP & TELEMETRY
+        // LIFECYCLE, HOTKEYS & DYNAMIC WINDOWS OS THEME SYNC (DWM CAPTION COLOR)
         // =====================================================================
         private async void OnMainWindowLoaded(object sender, RoutedEventArgs e)
         {
-            ApplyWindows11DarkBackdrop();
+            ApplyWindows11ThemeChrome();
             RegisterGlobalHotkeys();
 
-            RenderWorkspacePills();
+            UpdateProfilesDropdownButton();
             RenderSidebarFavorites();
-            RenderCategoryPills();
             RenderDashboardCards();
             RenderTabStrip();
 
@@ -2545,23 +2650,106 @@ namespace GSuiteContainer
                 await NavigateAiDrawerAsync(_config.ActiveAiProviderUrl);
             }
 
-            _telemetryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
-            _telemetryTimer.Tick += (s, args) => UpdateMemoryStatus();
-            _telemetryTimer.Start();
-            UpdateMemoryStatus();
+            var cmdArgs = Environment.GetCommandLineArgs();
+            for (int i = 0; i < cmdArgs.Length - 1; i++)
+            {
+                if (cmdArgs[i] == "--verify-screenshot")
+                {
+                    string outPath = cmdArgs[i + 1];
+                    if (cmdArgs.Contains("--demo-tabs"))
+                    {
+                        _tabs.Add(new BrowserTabEntry { Title = "Inbox (3) - george.christosp@gmail.com", Url = "https://mail.google.com/mail/u/0/#inbox", IconFile = "gmail.png" });
+                        _tabs.Add(new BrowserTabEntry { Title = "Google Calendar - Week", Url = "https://calendar.google.com/calendar/u/0/r", IconFile = "google-calendar.png" });
+                        _tabs.Add(new BrowserTabEntry { Title = "Google Keep", Url = "https://keep.google.com/", IconFile = "google-keep.png" });
+                        _tabs.Add(new BrowserTabEntry { Title = "Google Docs", Url = "https://docs.google.com/document/u/0/", IconFile = "google-docs.png" });
+                        _tabs.Add(new BrowserTabEntry { Title = "Google Drive - My Drive", Url = "https://drive.google.com/drive/my-drive", IconFile = "google-drive.png" });
+                        RenderTabStrip();
+                    }
+                    await Task.Delay(400);
+                    CaptureWindowRenderToPng(outPath);
+                    Close();
+                    break;
+                }
+            }
         }
 
-        private void ApplyWindows11DarkBackdrop()
+        private void CaptureWindowRenderToPng(string outPath)
+        {
+            try
+            {
+                UpdateLayout();
+                int w = (int)Math.Max(1200, ActualWidth);
+                int h = (int)Math.Max(800, ActualHeight);
+                var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                rtb.Render(_rootGrid);
+                var enc = new PngBitmapEncoder();
+                enc.Frames.Add(BitmapFrame.Create(rtb));
+                using var fs = File.Create(outPath);
+                enc.Save(fs);
+            }
+            catch { }
+        }
+
+        // Eliminates the Windows teal title bar by painting DWM Caption & Text to match MD3 Surface (#F8FAFD Light / #131314 Dark)
+        private void ApplyWindows11ThemeChrome()
         {
             try
             {
                 IntPtr hwnd = new WindowInteropHelper(this).Handle;
-                int dark = 1;
+                int dark = Md3Theme.IsDark ? 1 : 0;
                 DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int)); // DWMWA_USE_IMMERSIVE_DARK_MODE
-                int mica = 2;
-                DwmSetWindowAttribute(hwnd, 38, ref mica, sizeof(int)); // DWMWA_SYSTEMBACKDROP_TYPE (Mica)
+
+                // COLORREF format is 0x00BBGGRR
+                int captionColorRef = Md3Theme.IsDark ? 0x00141313 : 0x00FDFAF8; // #131314 Dark / #F8FAFD Light
+                DwmSetWindowAttribute(hwnd, 35, ref captionColorRef, sizeof(int)); // DWMWA_CAPTION_COLOR
+
+                int textColorRef = Md3Theme.IsDark ? 0x00E3E3E3 : 0x001F1F1F; // #E3E3E3 Dark / #1F1F1F Light
+                DwmSetWindowAttribute(hwnd, 36, ref textColorRef, sizeof(int)); // DWMWA_TEXT_COLOR
+
+                int borderColorRef = Md3Theme.IsDark ? 0x00373533 : 0x00E0E2E0;
+                DwmSetWindowAttribute(hwnd, 34, ref borderColorRef, sizeof(int)); // DWMWA_BORDER_COLOR
             }
             catch { }
+        }
+
+        private void ApplyLiveThemeUpdate()
+        {
+            ApplyWindows11ThemeChrome();
+
+            Background = Md3Theme.Surface;
+            Foreground = Md3Theme.TextPrimary;
+            _rootGrid.Background = Md3Theme.Surface;
+            _topBarBorder.Background = Md3Theme.Surface;
+            _topBarBorder.BorderBrush = Md3Theme.Outline;
+            _profilesDropdownBtn.Background = Md3Theme.SurfaceContainer;
+            _profilesDropdownBtn.BorderBrush = Md3Theme.Outline;
+            _profilesDropdownLabel.Foreground = Md3Theme.TextPrimary;
+
+            _navBarBorder.Background = Md3Theme.SurfaceContainer;
+            _navBarBorder.BorderBrush = Md3Theme.Outline;
+            _appsGridBtn.Background = Md3Theme.PrimaryContainer;
+            _appsGridBtn.Foreground = Md3Theme.OnPrimaryContainer;
+
+            _omniBorder.Background = Md3Theme.SurfaceVariant;
+            _omniBorder.BorderBrush = Md3Theme.Outline;
+            _searchEnginePillBtn.Foreground = Md3Theme.Primary;
+            _omniboxInput.Foreground = Md3Theme.TextPrimary;
+            _omniboxInput.CaretBrush = Md3Theme.Primary;
+
+            _sidebarBorder.Background = Md3Theme.Surface;
+            _sidebarBorder.BorderBrush = Md3Theme.Outline;
+            _contentHostGrid.Background = Md3Theme.Surface;
+
+            _homeDashboardOverlay.Background = Md3Theme.Surface;
+            _hubTitleText.Foreground = Md3Theme.TextPrimary;
+            _hubSubtitleText.Foreground = Md3Theme.TextSecondary;
+            _hubSearchBorder.Background = Md3Theme.SurfaceContainer;
+            _hubSearchBorder.BorderBrush = Md3Theme.Outline;
+            _homeFilterBox.Foreground = Md3Theme.TextPrimary;
+
+            RenderSidebarFavorites();
+            RenderDashboardCards();
+            RenderTabStrip();
         }
 
         private void RegisterGlobalHotkeys()
@@ -2580,6 +2768,8 @@ namespace GSuiteContainer
         private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             const int WM_HOTKEY = 0x0312;
+            const int WM_SETTINGCHANGE = 0x001A;
+
             if (msg == WM_HOTKEY)
             {
                 int id = wParam.ToInt32();
@@ -2589,6 +2779,13 @@ namespace GSuiteContainer
                     Activate();
                     ToggleCommandPalette();
                     handled = true;
+                }
+            }
+            else if (msg == WM_SETTINGCHANGE)
+            {
+                if (Md3Theme.SyncWithOsTheme())
+                {
+                    Dispatcher.BeginInvoke(new Action(ApplyLiveThemeUpdate));
                 }
             }
             return IntPtr.Zero;
@@ -2604,6 +2801,7 @@ namespace GSuiteContainer
                     else if (e.Key == Key.T) { e.Handled = true; ShowLauncherDashboard(); }
                     else if (e.Key == Key.W && _activeTab != null) { e.Handled = true; CloseTab(_activeTab); }
                     else if (e.Key == Key.L) { e.Handled = true; _omniboxInput.Focus(); }
+                    else if (e.Key == Key.B) { e.Handled = true; ToggleSidebarCollapse(); }
                 }
                 else if (e.KeyboardDevice.Modifiers == ModifierKeys.Alt)
                 {
@@ -2614,28 +2812,16 @@ namespace GSuiteContainer
                 else if (e.KeyboardDevice.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.N)
                 {
                     e.Handled = true;
-                    OpenDedicatedPopoutWindow(_activeTab?.Title ?? "Google", _activeTab?.Url ?? "https://www.google.com");
+                    OpenDedicatedPopoutWindow(_activeTab?.Title ?? "Google Workspace", _activeTab?.Url ?? "https://www.google.com");
                 }
             };
-        }
-
-        private void UpdateMemoryStatus()
-        {
-            try
-            {
-                using var proc = Process.GetCurrentProcess();
-                double mb = proc.WorkingSet64 / (1024.0 * 1024.0);
-                int sleeping = _tabs.Count(t => t.IsHibernated);
-                _memoryFooterText.Text = $"Host RAM: {mb:F1} MB | Tabs: {_tabs.Count} ({sleeping} sleeping)";
-            }
-            catch { }
         }
 
         private void ShowToast(string message)
         {
             _toastText.Text = message;
             _toastBanner.Visibility = Visibility.Visible;
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3.5) };
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3.2) };
             timer.Tick += (s, e) =>
             {
                 _toastBanner.Visibility = Visibility.Collapsed;
@@ -2647,29 +2833,21 @@ namespace GSuiteContainer
         // =====================================================================
         // UTILITY HELPERS
         // =====================================================================
-        private static Button CreateToolbarButton(string text, string tooltip, SolidColorBrush fg)
+        private static Button CreateToolbarButton(string text, string tooltip)
         {
             return new Button
             {
                 Content = text,
                 ToolTip = tooltip,
-                Background = BgCard,
-                Foreground = fg,
-                BorderBrush = BorderSubtle,
+                Background = Md3Theme.SurfaceContainer,
+                Foreground = Md3Theme.TextPrimary,
+                BorderBrush = Md3Theme.Outline,
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(9, 4, 9, 4),
                 Margin = new Thickness(0, 0, 5, 0),
                 FontSize = 11.5,
                 Cursor = Cursors.Hand
             };
-        }
-
-        private static SolidColorBrush BrushFromHex(string hex)
-        {
-            var c = (Color)ColorConverter.ConvertFromString(hex);
-            var b = new SolidColorBrush(c);
-            b.Freeze();
-            return b;
         }
 
         private static bool FuzzyMatch(string text, string query)
@@ -2684,12 +2862,6 @@ namespace GSuiteContainer
                     qi++;
             }
             return qi == query.Length;
-        }
-
-        private static string Truncate(string value, int maxChars)
-        {
-            if (string.IsNullOrEmpty(value)) return "";
-            return value.Length <= maxChars ? value : value.Substring(0, maxChars - 1) + "…";
         }
 
         private static string ComputeSha256(string input)
@@ -2712,7 +2884,7 @@ namespace GSuiteContainer
             string logFile = System.IO.Path.Combine(logDir, "startup.log");
             try
             {
-                File.WriteAllText(logFile, $"[{DateTime.Now:O}] Initializing GSuiteContainer...\r\n");
+                File.WriteAllText(logFile, $"[{DateTime.Now:O}] Initializing GSuiteContainer V2 (Material Design 3)...\r\n");
                 var app = new Application();
                 app.DispatcherUnhandledException += (s, e) =>
                 {
@@ -2720,7 +2892,7 @@ namespace GSuiteContainer
                     e.Handled = true;
                 };
                 var win = new MainWindow();
-                win.Loaded += (s, e) => File.AppendAllText(logFile, $"[{DateTime.Now:O}] MainWindow Loaded OK! Title={win.Title}\r\n");
+                win.Loaded += (s, e) => File.AppendAllText(logFile, $"[{DateTime.Now:O}] MainWindow Loaded OK! Title={win.Title} | IsDark={Md3Theme.IsDark}\r\n");
                 app.Run(win);
             }
             catch (Exception ex)
