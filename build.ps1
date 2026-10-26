@@ -139,5 +139,89 @@ if (Test-Path $apphostTemplate) {
     if ($patched) { [System.IO.File]::WriteAllBytes($outExe, $appBytes) }
 }
 
+# 5. Inject Official Google Workspace Icon (assets\app-icon.ico) into GSuiteContainer.exe Win32 PE Resources (#32512)
+if ((Test-Path $outExe) -and (Test-Path $icoFile)) {
+    if (-not ("Win32IconPatcher" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+
+public static class Win32IconPatcher
+{
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr BeginUpdateResource(string pFileName, bool bDeleteExistingResources);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool UpdateResource(IntPtr hUpdate, IntPtr lpType, IntPtr lpName, ushort wLanguage, byte[] lpData, uint cbData);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool EndUpdateResource(IntPtr hUpdate, bool fDiscard);
+
+    [DllImport("shell32.dll")]
+    public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
+
+    public static void ApplyIconToExe(string exePath, string icoPath)
+    {
+        byte[] ico = File.ReadAllBytes(icoPath);
+        if (ico.Length < 22) return;
+
+        ushort count = BitConverter.ToUInt16(ico, 4);
+        IntPtr hUpdate = BeginUpdateResource(exePath, false);
+        if (hUpdate == IntPtr.Zero) return;
+
+        using var grpStream = new MemoryStream();
+        using var bw = new BinaryWriter(grpStream);
+        bw.Write((ushort)0);     // Reserved
+        bw.Write((ushort)1);     // Type: 1 = Icon
+        bw.Write(count);         // Image count
+
+        ushort langEnUs = 1033;
+        ushort langNeutral = 0;
+
+        for (int i = 0; i < count; i++)
+        {
+            int entryOffset = 6 + (i * 16);
+            byte width = ico[entryOffset + 0];
+            byte height = ico[entryOffset + 1];
+            byte colors = ico[entryOffset + 2];
+            byte reserved = ico[entryOffset + 3];
+            ushort planes = BitConverter.ToUInt16(ico, entryOffset + 4);
+            ushort bpp = BitConverter.ToUInt16(ico, entryOffset + 6);
+            uint bytesInRes = BitConverter.ToUInt32(ico, entryOffset + 8);
+            uint imageOffset = BitConverter.ToUInt32(ico, entryOffset + 12);
+
+            byte[] imgData = new byte[bytesInRes];
+            Buffer.BlockCopy(ico, (int)imageOffset, imgData, 0, (int)bytesInRes);
+
+            ushort iconId = (ushort)(i + 1);
+            UpdateResource(hUpdate, (IntPtr)3, (IntPtr)iconId, langNeutral, imgData, bytesInRes);
+            UpdateResource(hUpdate, (IntPtr)3, (IntPtr)iconId, langEnUs, imgData, bytesInRes);
+
+            bw.Write(width);
+            bw.Write(height);
+            bw.Write(colors);
+            bw.Write(reserved);
+            bw.Write(planes);
+            bw.Write(bpp);
+            bw.Write(bytesInRes);
+            bw.Write(iconId);
+        }
+
+        byte[] grpData = grpStream.ToArray();
+        // #32512 = IDI_APPLICATION (Primary Win32 & .NET AppHost Icon Group)
+        UpdateResource(hUpdate, (IntPtr)14, (IntPtr)32512, langNeutral, grpData, (uint)grpData.Length);
+        UpdateResource(hUpdate, (IntPtr)14, (IntPtr)32512, langEnUs, grpData, (uint)grpData.Length);
+        UpdateResource(hUpdate, (IntPtr)14, (IntPtr)1, langNeutral, grpData, (uint)grpData.Length);
+
+        EndUpdateResource(hUpdate, false);
+        SHChangeNotify(0x08000000, 0x0000, IntPtr.Zero, IntPtr.Zero);
+    }
+}
+"@
+    }
+    [Win32IconPatcher]::ApplyIconToExe($outExe, $icoFile)
+}
+
 Write-Host "Build Succeeded! Output files in $projRoot :" -ForegroundColor Green
 Get-ChildItem $projRoot -File | Where-Object { $_.Name -like "GSuiteContainer*" -or $_.Name -like "*WebView2*" } | Select-Object Name, @{N='KB';E={[math]::Round($_.Length/1KB,1)}} | Format-Table -AutoSize

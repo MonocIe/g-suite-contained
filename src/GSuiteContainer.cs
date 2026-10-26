@@ -58,7 +58,7 @@ namespace GSuiteContainer
     public class WorkspaceProfile
     {
         public string Id { get; set; } = "personal";
-        public string Name { get; set; } = "Personal";
+        public string Name { get; set; } = "GCPs";
         public string PinSha256 { get; set; } = "";
         public string DetectedAccount { get; set; } = "george.christosp@gmail.com";
         public List<string> OpenTabUrls { get; set; } = new List<string>();
@@ -78,7 +78,7 @@ namespace GSuiteContainer
         public List<GoogleAppDef> CustomApps { get; set; } = new List<GoogleAppDef>();
         public List<WorkspaceProfile> Workspaces { get; set; } = new List<WorkspaceProfile>
         {
-            new WorkspaceProfile { Id = "personal", Name = "Personal", DetectedAccount = "george.christosp@gmail.com" }
+            new WorkspaceProfile { Id = "personal", Name = "GCPs", DetectedAccount = "george.christosp@gmail.com" }
         };
     }
 
@@ -607,6 +607,12 @@ namespace GSuiteContainer
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr LoadImage(IntPtr hInst, string lpszName, uint uType, int cxDesired, int cyDesired, uint fuLoad);
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        public static extern int SetCurrentProcessExplicitAppUserModelID(string AppID);
 
         private const int HOTKEY_ID_ALT_SPACE = 9001;
         private const int HOTKEY_ID_CTRL_SHIFT_G = 9002;
@@ -1426,8 +1432,8 @@ namespace GSuiteContainer
         private void UpdateProfilesDropdownButton()
         {
             var ws = GetActiveWorkspace();
-            string acct = string.IsNullOrWhiteSpace(ws.DetectedAccount) ? "george.christosp@gmail.com" : ws.DetectedAccount;
-            _profilesDropdownLabel.Text = $"Profiles: {acct} ▾";
+            string label = string.IsNullOrWhiteSpace(ws.Name) ? "GCPs" : ws.Name;
+            _profilesDropdownLabel.Text = $"Profiles: {label} ▾";
             _profilesDropdownLabel.Foreground = Md3Theme.TextPrimary;
         }
 
@@ -2877,6 +2883,19 @@ namespace GSuiteContainer
 
                 int borderColorRef = Md3Theme.IsDark ? 0x00373533 : 0x00E0E2E0;
                 DwmSetWindowAttribute(hwnd, 34, ref borderColorRef, sizeof(int)); // DWMWA_BORDER_COLOR
+
+                // Explicitly bind Win32 HICON (ICON_SMALL & ICON_BIG) for Windows 11 Taskbar & Alt-Tab
+                string icoPath = System.IO.Path.Combine(_appRoot, "assets", "app-icon.ico");
+                if (File.Exists(icoPath))
+                {
+                    const uint IMAGE_ICON = 1;
+                    const uint LR_LOADFROMFILE = 0x0010;
+                    const uint WM_SETICON = 0x0080;
+                    IntPtr hIconSmall = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+                    IntPtr hIconBig   = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 48, 48, LR_LOADFROMFILE);
+                    if (hIconSmall != IntPtr.Zero) SendMessage(hwnd, WM_SETICON, (IntPtr)0, hIconSmall);
+                    if (hIconBig   != IntPtr.Zero) SendMessage(hwnd, WM_SETICON, (IntPtr)1, hIconBig);
+                }
             }
             catch { }
         }
@@ -3053,6 +3072,7 @@ namespace GSuiteContainer
             string logFile = System.IO.Path.Combine(logDir, "startup.log");
             try
             {
+                try { MainWindow.SetCurrentProcessExplicitAppUserModelID("PanagIo.GoogleWorkspace.Container.V2"); } catch { }
                 File.WriteAllText(logFile, $"[{DateTime.Now:O}] Initializing GSuiteContainer V2 (Material Design 3)...\r\n");
                 var app = new Application();
                 app.DispatcherUnhandledException += (s, e) =>
