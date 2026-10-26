@@ -291,10 +291,7 @@ namespace GSuiteContainer
         {
             ("Gemini", "https://gemini.google.com/app", "google-gemini.png"),
             ("NotebookLM", "https://notebooklm.google.com/", "gemini-notebook.png"),
-            ("AI Studio", "https://aistudio.google.com/", "google-ai-studio.png"),
-            ("ChatGPT", "https://chatgpt.com/", "google-apps-for-work.png"),
-            ("Claude", "https://claude.ai/", "google-apps-for-work.png"),
-            ("Perplexity", "https://www.perplexity.ai/", "google-apps-for-work.png")
+            ("AI Studio", "https://aistudio.google.com/", "google-ai-studio.png")
         };
 
         public static List<GoogleAppDef> GetBuiltInCatalog() => new List<GoogleAppDef>
@@ -819,6 +816,11 @@ namespace GSuiteContainer
                 {
                     ws.DetectedAccount = "george.christosp@gmail.com";
                 }
+            }
+
+            if ( CatalogRegistry.GetAiProviders().All(p => p.Url != _config.ActiveAiProviderUrl))
+            {
+                _config.ActiveAiProviderUrl = "https://gemini.google.com/app";
             }
         }
 
@@ -1472,6 +1474,37 @@ namespace GSuiteContainer
             addProfileItem.Click += (s, args) => CreateNewWorkspaceDialog();
             menu.Items.Add(addProfileItem);
 
+            var manageSubMenu = new MenuItem
+            {
+                Header = "✎ Edit / Remove Profiles",
+                Foreground = Md3Theme.TextPrimary
+            };
+            foreach (var profile in _config.Workspaces)
+            {
+                var capturedProfile = profile;
+                var editItem = new MenuItem
+                {
+                    Header = $"Edit \"{capturedProfile.Name}\" ({capturedProfile.DetectedAccount})...",
+                    Foreground = Md3Theme.TextPrimary
+                };
+                editItem.Click += (s, args) => ShowEditWorkspaceDialog(capturedProfile);
+                manageSubMenu.Items.Add(editItem);
+
+                if (_config.Workspaces.Count > 1)
+                {
+                    var removeItem = new MenuItem
+                    {
+                        Header = $"Remove \"{capturedProfile.Name}\"",
+                        Foreground = Md3Theme.BrushFromHex("#D93025")
+                    };
+                    removeItem.Click += async (s, args) => await DeleteWorkspaceAsync(capturedProfile.Id);
+                    manageSubMenu.Items.Add(removeItem);
+                }
+            }
+            menu.Items.Add(manageSubMenu);
+
+            menu.Items.Add(new Separator());
+
             var hibernateItem = new MenuItem { Header = "Hibernate Background Tabs", Foreground = Md3Theme.TextPrimary };
             hibernateItem.Click += (s, args) => HibernateBackgroundTabs();
             menu.Items.Add(hibernateItem);
@@ -2015,10 +2048,19 @@ namespace GSuiteContainer
             };
             foreach (var p in CatalogRegistry.GetAiProviders())
             {
-                var btn = CreateToolbarButton(p.Name, $"Switch AI Drawer to {p.Name}");
-                btn.Padding = new Thickness(7, 3, 7, 3);
-                btn.Margin = new Thickness(0, 0, 4, 0);
-                btn.FontSize = 11;
+                var btn = CreateToolbarButton("", $"Switch AI Drawer to {p.Name}");
+                btn.Padding = new Thickness(9, 4, 9, 4);
+                btn.Margin = new Thickness(0, 0, 5, 0);
+                var btnStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                btnStack.Children.Add(CreateCrispIconImage(p.IconFile, 14, new Thickness(0, 0, 6, 0)));
+                btnStack.Children.Add(new TextBlock
+                {
+                    Text = p.Name,
+                    FontSize = 11.5,
+                    FontWeight = FontWeights.Medium,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                btn.Content = btnStack;
                 string targetUrl = p.Url;
                 btn.Click += async (s, e) => await NavigateAiDrawerAsync(targetUrl);
                 _aiProviderTabsPanel.Children.Add(btn);
@@ -2636,6 +2678,126 @@ namespace GSuiteContainer
             stack.Children.Add(createBtn);
             dlg.Content = stack;
             dlg.ShowDialog();
+        }
+
+        private void ShowEditWorkspaceDialog(WorkspaceProfile profile)
+        {
+            var dlg = new Window
+            {
+                Title = $"Edit Profile | {profile.Name}",
+                Width = 420,
+                Height = 290,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                Background = Md3Theme.SurfaceContainer,
+                Foreground = Md3Theme.TextPrimary,
+                FontFamily = UiFont,
+                Icon = Icon
+            };
+            var stack = new StackPanel { Margin = new Thickness(20) };
+            stack.Children.Add(new TextBlock { Text = "Profile Label:", Foreground = Md3Theme.TextSecondary, Margin = new Thickness(0, 0, 0, 4) });
+            var nameBox = new TextBox
+            {
+                Height = 32,
+                Background = Md3Theme.SurfaceVariant,
+                Foreground = Md3Theme.TextPrimary,
+                BorderBrush = Md3Theme.Outline,
+                Padding = new Thickness(8, 5, 8, 5),
+                Text = profile.Name
+            };
+            stack.Children.Add(nameBox);
+
+            stack.Children.Add(new TextBlock { Text = "Account Email:", Foreground = Md3Theme.TextSecondary, Margin = new Thickness(0, 12, 0, 4) });
+            var emailBox = new TextBox
+            {
+                Height = 32,
+                Background = Md3Theme.SurfaceVariant,
+                Foreground = Md3Theme.TextPrimary,
+                BorderBrush = Md3Theme.Outline,
+                Padding = new Thickness(8, 5, 8, 5),
+                Text = profile.DetectedAccount
+            };
+            stack.Children.Add(emailBox);
+
+            var btnRow = new Grid { Margin = new Thickness(0, 18, 0, 0) };
+            btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var saveBtn = CreateToolbarButton("Save Changes", "Update profile label and email");
+            saveBtn.Height = 34;
+            saveBtn.Click += (s, e) =>
+            {
+                string n = nameBox.Text.Trim();
+                string em = emailBox.Text.Trim();
+                if (!string.IsNullOrEmpty(n))
+                {
+                    profile.Name = n;
+                    profile.DetectedAccount = string.IsNullOrEmpty(em) ? n : em;
+                    SaveConfig();
+                    UpdateProfilesDropdownButton();
+                    ShowToast($"Updated profile '{profile.Name}'.");
+                    dlg.Close();
+                }
+            };
+            Grid.SetColumn(saveBtn, 0);
+            btnRow.Children.Add(saveBtn);
+
+            if (_config.Workspaces.Count > 1)
+            {
+                var delBtn = CreateToolbarButton("Remove Profile", "Delete this profile from the list");
+                delBtn.Height = 34;
+                delBtn.Margin = new Thickness(8, 0, 0, 0);
+                delBtn.Foreground = Md3Theme.BrushFromHex("#D93025");
+                delBtn.Click += async (s, e) =>
+                {
+                    dlg.Close();
+                    await DeleteWorkspaceAsync(profile.Id);
+                };
+                Grid.SetColumn(delBtn, 1);
+                btnRow.Children.Add(delBtn);
+            }
+
+            stack.Children.Add(btnRow);
+            dlg.Content = stack;
+            dlg.ShowDialog();
+        }
+
+        private async Task DeleteWorkspaceAsync(string workspaceId)
+        {
+            if (_config.Workspaces.Count <= 1)
+            {
+                ShowToast("Cannot remove the only remaining profile.");
+                return;
+            }
+
+            var target = _config.Workspaces.FirstOrDefault(w => w.Id == workspaceId);
+            if (target == null) return;
+
+            bool wasActive = (_config.ActiveWorkspaceId == workspaceId);
+            _config.Workspaces.Remove(target);
+            _envCache.Remove(workspaceId);
+            SaveConfig();
+
+            if (wasActive)
+            {
+                await SwitchWorkspaceAsync(_config.Workspaces[0].Id);
+            }
+            else
+            {
+                UpdateProfilesDropdownButton();
+            }
+
+            try
+            {
+                string profileDir = System.IO.Path.Combine(_dataRoot, "Profiles", workspaceId);
+                if (Directory.Exists(profileDir))
+                {
+                    Directory.Delete(profileDir, recursive: true);
+                }
+            }
+            catch { }
+
+            ShowToast($"Removed profile '{target.Name}'.");
         }
 
         // =====================================================================
