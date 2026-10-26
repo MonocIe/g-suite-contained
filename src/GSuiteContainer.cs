@@ -78,9 +78,7 @@ namespace GSuiteContainer
         public List<GoogleAppDef> CustomApps { get; set; } = new List<GoogleAppDef>();
         public List<WorkspaceProfile> Workspaces { get; set; } = new List<WorkspaceProfile>
         {
-            new WorkspaceProfile { Id = "personal", Name = "Personal", DetectedAccount = "george.christosp@gmail.com" },
-            new WorkspaceProfile { Id = "work", Name = "Work / Corp", DetectedAccount = "george@panag.io" },
-            new WorkspaceProfile { Id = "executive", Name = "Executive Vault", DetectedAccount = "george.christosp@gmail.com" }
+            new WorkspaceProfile { Id = "personal", Name = "Personal", DetectedAccount = "george.christosp@gmail.com" }
         };
     }
 
@@ -795,6 +793,26 @@ namespace GSuiteContainer
             }
             catch { _config = new AppConfig(); }
 
+            // Strip legacy pre-seeded Work / Corp and Executive Vault placeholder profiles
+            _config.Workspaces.RemoveAll(w =>
+                (w.Id == "work" && w.Name == "Work / Corp") ||
+                (w.Id == "executive" && w.Name == "Executive Vault"));
+
+            if (_config.Workspaces.Count == 0)
+            {
+                _config.Workspaces.Add(new WorkspaceProfile
+                {
+                    Id = "personal",
+                    Name = "Personal",
+                    DetectedAccount = "george.christosp@gmail.com"
+                });
+            }
+
+            if (_config.Workspaces.All(w => w.Id != _config.ActiveWorkspaceId))
+            {
+                _config.ActiveWorkspaceId = _config.Workspaces[0].Id;
+            }
+
             foreach (var ws in _config.Workspaces)
             {
                 if (string.IsNullOrWhiteSpace(ws.DetectedAccount))
@@ -1035,7 +1053,7 @@ namespace GSuiteContainer
             Grid.SetColumn(_omniBorder, 1);
             navGrid.Children.Add(_omniBorder);
 
-            // Right Tools (REQ-05: Shield: ON stripped; REQ-06: Browser stays in-container)
+            // Right Tools (REQ-05: Shield: ON stripped; REQ-06: Browser button removed, New Tab/Omnibox handles navigation)
             var navRight = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
 
             var splitBtn = CreateToolbarButton("Split View", "Toggle Dual-Pane Side-by-Side Workspace (Alt+S)");
@@ -1045,10 +1063,6 @@ namespace GSuiteContainer
             var miniPlayerBtn = CreateToolbarButton("PiP Mini", "Pop current tab into Always-on-Top Mini-Player (Alt+P)");
             miniPlayerBtn.Click += (s, e) => OpenMiniPlayerForActiveTab();
             navRight.Children.Add(miniPlayerBtn);
-
-            var browserBtn = CreateToolbarButton("Browser", "Open in-container Google Web Browser tab");
-            browserBtn.Click += async (s, e) => await OpenInContainerBrowserTabAsync();
-            navRight.Children.Add(browserBtn);
 
             var aiBtn = CreateToolbarButton("✦ AI Drawer", "Toggle Official AI Companion Drawer (Alt+A)");
             aiBtn.Foreground = Md3Theme.Primary;
@@ -1653,6 +1667,7 @@ namespace GSuiteContainer
                     string email = msg.Substring("account:".Length);
                     ws.DetectedAccount = email;
                     UpdateProfilesDropdownButton();
+                    SaveConfig();
                 }
             };
 
@@ -2095,15 +2110,6 @@ namespace GSuiteContainer
             wv.CoreWebView2.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Auto;
             await wv.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(InjectedScripts.DocumentStartInitScript);
             wv.CoreWebView2.Navigate(url);
-        }
-
-        // REQ-06: In-Container Browser Action (Never spawns external Microsoft Edge windows)
-        private async Task OpenInContainerBrowserTabAsync()
-        {
-            string url = (_activeTab != null && !string.IsNullOrWhiteSpace(_activeTab.Url) && _activeTab.Url != "about:blank")
-                ? _activeTab.Url
-                : "https://www.google.com/";
-            await OpenAppInTabAsync("Google Web", url, "google-apps-for-work.png", switchToTab: true);
         }
 
         // =====================================================================
@@ -2598,8 +2604,8 @@ namespace GSuiteContainer
             var nameBox = new TextBox { Height = 32, Background = Md3Theme.SurfaceVariant, Foreground = Md3Theme.TextPrimary, BorderBrush = Md3Theme.Outline, Padding = new Thickness(8, 5, 8, 5) };
             stack.Children.Add(nameBox);
 
-            stack.Children.Add(new TextBlock { Text = "Account Email:", Foreground = Md3Theme.TextSecondary, Margin = new Thickness(0, 12, 0, 4) });
-            var emailBox = new TextBox { Height = 32, Background = Md3Theme.SurfaceVariant, Foreground = Md3Theme.TextPrimary, BorderBrush = Md3Theme.Outline, Padding = new Thickness(8, 5, 8, 5), Text = "george.christosp@gmail.com" };
+            stack.Children.Add(new TextBlock { Text = "Account Email (optional, auto-detected on sign-in):", Foreground = Md3Theme.TextSecondary, Margin = new Thickness(0, 12, 0, 4) });
+            var emailBox = new TextBox { Height = 32, Background = Md3Theme.SurfaceVariant, Foreground = Md3Theme.TextPrimary, BorderBrush = Md3Theme.Outline, Padding = new Thickness(8, 5, 8, 5), Text = "" };
             stack.Children.Add(emailBox);
 
             var createBtn = CreateToolbarButton("Create & Switch Profile", "Creates isolated WebView2 profile folder");
@@ -2619,7 +2625,7 @@ namespace GSuiteContainer
                         {
                             Id = id,
                             Name = n,
-                            DetectedAccount = string.IsNullOrEmpty(em) ? "george.christosp@gmail.com" : em
+                            DetectedAccount = string.IsNullOrEmpty(em) ? n : em
                         });
                         SaveConfig();
                     }
@@ -2667,6 +2673,7 @@ namespace GSuiteContainer
                     }
                     await Task.Delay(400);
                     CaptureWindowRenderToPng(outPath);
+                    if (cmdArgs.Contains("--demo-tabs")) _tabs.Clear();
                     Close();
                     break;
                 }
