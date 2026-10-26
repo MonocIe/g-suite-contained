@@ -53,7 +53,7 @@ Built via clean-room architectural consolidation of 6 Microsoft Store Google web
 
 ## Building from Source
 
-Requires Windows 10/11 with `.NET 8.0 Desktop Runtime` (`Microsoft.WindowsDesktop.App 8.0.x`) and `PowerShell 7+` (`pwsh` with built-in Roslyn `Microsoft.CodeAnalysis.CSharp`).
+Requires Windows 10/11 with `.NET 8.0 Desktop Runtime` (`Microsoft.WindowsDesktop.App 8.0.x`) and `PowerShell 7+` (`pwsh` running the [`build.ps1`](build.ps1) script powered by built-in Roslyn `Microsoft.CodeAnalysis.CSharp`).
 
 ```powershell
 pwsh -NoProfile -File .\build.ps1
